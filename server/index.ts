@@ -2,22 +2,29 @@ import express from 'express';
 import cors from 'cors';
 import { pool } from './db';
 import { v4 as uuidv4 } from 'uuid';
+// import dotenv from 'dotenv'; // Opțional, dacă nu e încărcat în db.ts
 
 const app = express();
+
+// IMPORTANT PENTRU DEPLOY:
+// Cloud provider-ul (Railway/Render) va seta automat PORT.
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+// Configurare CORS
+// Pentru producție, ideal ar fi să pui doar domeniul frontend-ului tău.
+// Momentan lăsăm '*' (default) ca să funcționeze imediat.
+app.use(cors()); 
+
 app.use(express.json());
 
 // --- HELPER: Normalizează datele din DB (lowercase) în JS (camelCase) ---
-// Postgres returnează 'totalquantity', dar React vrea 'totalQuantity'
 const mapCategory = (row: any) => ({
   id: row.id,
   code: row.code,
   name: row.name,
   price: row.price,
-  totalQuantity: row.totalquantity, // Mapping manual
-  soldQuantity: row.soldquantity,   // Mapping manual
+  totalQuantity: row.totalquantity,
+  soldQuantity: row.soldquantity,
   badge: row.badge
 });
 
@@ -34,7 +41,7 @@ app.get('/api/tickets', async (req, res) => {
 
     res.json(tickets);
   } catch (error) {
-    console.error(error);
+    console.error('Error fetching tickets:', error);
     res.status(500).json({ error: 'Eroare la preluarea biletelor' });
   }
 });
@@ -42,6 +49,12 @@ app.get('/api/tickets', async (req, res) => {
 // --- 2. POST ORDER ---
 app.post('/api/orders', async (req, res) => {
   const { customer, items } = req.body;
+  
+  // Validare basic
+  if (!customer || !items || items.length === 0) {
+      return res.status(400).json({ success: false, error: "Date incomplete" });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -58,14 +71,14 @@ app.post('/api/orders', async (req, res) => {
       if (resCat.rows.length === 0) throw new Error(`Categoria ${item.categoryId} nu există.`);
       
       const categoryRaw = resCat.rows[0];
-      const category = mapCategory(categoryRaw); // Convertim la camelCase
+      const category = mapCategory(categoryRaw); 
 
       const available = category.totalQuantity - category.soldQuantity;
       if (available < item.quantity) {
         throw new Error(`Stoc insuficient pentru ${category.name}. Disponibil: ${available}`);
       }
 
-      // UPDATE: Folosim lowercase 'soldquantity'
+      // UPDATE Stoc
       await client.query(
         'UPDATE ticket_categories SET soldquantity = soldquantity + $1 WHERE id = $2',
         [item.quantity, category.id]
@@ -83,8 +96,7 @@ app.post('/api/orders', async (req, res) => {
       });
     }
 
-    // INSERT ORDER: Folosim lowercase la coloane (createdat, customername etc)
-    // Presupunem că Supabase le-a făcut lowercase.
+    // INSERT ORDER
     await client.query(
       `INSERT INTO orders (id, createdat, customername, customeremail, customerphone, totalamount, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -99,7 +111,7 @@ app.post('/api/orders', async (req, res) => {
       ]
     );
 
-    // INSERT ITEMS: Folosim lowercase (orderid, ticketcategoryid...)
+    // INSERT ITEMS
     for (const oi of orderItemsToInsert) {
       await client.query(
         `INSERT INTO order_items (id, orderid, ticketcategoryid, quantity, priceperunit)
@@ -124,14 +136,12 @@ app.post('/api/orders', async (req, res) => {
 app.get('/api/admin/stats', async (req, res) => {
   try {
     const resOrders = await pool.query('SELECT COUNT(*) as count FROM orders');
-    // Atenție: folosim totalamount (lowercase)
     const resRevenue = await pool.query('SELECT SUM(totalamount) as total FROM orders'); 
     const resCategories = await pool.query('SELECT * FROM ticket_categories');
     
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     
-    // Atenție: createdat, totalamount (lowercase)
     const resHistory = await pool.query(
       'SELECT createdat, totalamount FROM orders WHERE createdat >= $1',
       [sevenDaysAgo.toISOString()]
@@ -141,7 +151,6 @@ app.get('/api/admin/stats', async (req, res) => {
     const salesHistory = resHistory.rows;
 
     const chartData = salesHistory.reduce((acc: any[], curr: any) => {
-      // Postgres returnează lowercase: curr.createdat, curr.totalamount
       const day = new Date(curr.createdat).toLocaleDateString('ro-RO', { weekday: 'short' });
       const existing = acc.find(x => x.day === day);
       const amount = parseFloat(curr.totalamount);
@@ -167,16 +176,19 @@ app.get('/api/admin/stats', async (req, res) => {
   }
 });
 
-// --- 4. SEED ENDPOINT (Fixat pentru Lowercase) ---
+// --- 4. SEED ---
 app.get('/seed', async (req, res) => {
   try {
+    // Verificăm dacă tabelele există (basic check)
+    // Atenție: Dacă DB-ul e gol complet, s-ar putea să trebuiască să creezi tabelele întâi
+    // prin SQL în dashboard-ul Supabase, sau să adaugi 'CREATE TABLE IF NOT EXISTS' aici.
+    
     const check = await pool.query('SELECT COUNT(*) as count FROM ticket_categories');
     if (parseInt(check.rows[0].count) > 0) {
       res.send('Database already seeded!');
       return;
     }
 
-    // FIX AICI: Am scos ghilimelele de la coloane. Acum sunt lowercase implicit.
     const queryText = `
       INSERT INTO ticket_categories (id, code, name, price, totalquantity, badge) 
       VALUES ($1, $2, $3, $4, $5, $6)
@@ -193,6 +205,11 @@ app.get('/seed', async (req, res) => {
   }
 });
 
+// Root endpoint pentru verificare status
+app.get('/', (req, res) => {
+    res.send('API is running correctly 🚀');
+});
+
 app.listen(PORT, () => {
-  console.log(`Node+Postgres Server running on http://localhost:${PORT} 🚀`);
+  console.log(`Server running on port ${PORT}`);
 });

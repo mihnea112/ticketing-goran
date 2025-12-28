@@ -1,17 +1,23 @@
-// server/db.ts
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
 
-dotenv.config();
+// Încarcă variabilele din .env doar dacă suntem local
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config();
+}
 
-// Creăm o "piscină" de conexiuni (Pool)
-// Asta permite serverului să gestioneze mai mulți utilizatori simultan
+// Configurare pentru producție (SSL necesar pentru Supabase/Neon/Railway)
+const isProduction = process.env.NODE_ENV === 'production';
+
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error('DATABASE_URL is missing from environment variables');
+}
+
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false // Necesar pentru conexiuni Supabase din cloud
-  }
+  connectionString,
+  ssl: isProduction 
+    ? { rejectUnauthorized: false } // Necesar pentru multe DB-uri cloud free tier
+    : false, 
 });
-
-// Helper pentru a rula query-uri rapid
-export const query = (text: string, params?: any[]) => pool.query(text, params);
