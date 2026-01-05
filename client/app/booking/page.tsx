@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+// Nu mai avem nevoie de useRouter pentru redirectul de plată, dar îl ținem pentru erori/back
 import { useRouter } from "next/navigation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-// --- UI CONFIGURATION (Date statice de design) ---
-const UI_METADATA: Record<string, { desc: string; badge?: string; badgeColor?: string }> = {
+// --- UI CONFIGURATION ---
+const UI_METADATA: Record<string, { desc: string; badge?: string }> = {
   general: {
     desc: "Loc în picioare, acces bar",
     badge: "BEST VALUE",
@@ -21,7 +22,6 @@ const UI_METADATA: Record<string, { desc: string; badge?: string; badgeColor?: s
   },
 };
 
-// Interfața datelor care vin din API
 interface TicketData {
   id: string;
   code: string;
@@ -29,7 +29,6 @@ interface TicketData {
   price: number;
   totalQuantity: number;
   soldQuantity: number;
-  // Proprietăți adăugate de noi în frontend
   desc?: string;
   badge?: string;
 }
@@ -42,11 +41,7 @@ export default function BookingPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-
-  // Stocăm cantitățile selectate: { "uuid-bilet": 2 }
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-
-  // Datele clientului
   const [customer, setCustomer] = useState({
     firstName: "",
     lastName: "",
@@ -54,26 +49,25 @@ export default function BookingPage() {
     phone: "",
   });
 
-  // --- 1. FETCH DATA (La încărcare) ---
+  // --- 1. FETCH DATA ---
   useEffect(() => {
     const fetchTickets = async () => {
       try {
-        // MODIFICARE: Folosim API_URL dinamic
         const res = await fetch(`${API_URL}/api/tickets`);
-        
         if (!res.ok) throw new Error("Nu am putut încărca biletele");
         
         const data = await res.json();
+        console.log("🛠️ DATE SERVER (Check IDs):", data); // DEBUG
 
-        // Combinăm datele din DB cu metadata UI
         const processedTickets = data.map((t: any) => ({
           ...t,
+          // Asigurăm conversia ID-ului la string pentru a evita erorile
+          id: String(t.id),
           ...UI_METADATA[t.code], 
         }));
 
         setTickets(processedTickets);
         
-        // Inițializăm cantitățile cu 0
         const initialQty: Record<string, number> = {};
         processedTickets.forEach((t: any) => (initialQty[t.id] = 0));
         setQuantities(initialQty);
@@ -106,28 +100,28 @@ export default function BookingPage() {
     setCustomer((prev) => ({ ...prev, [name]: value }));
   };
 
-  // --- SUBMIT ORDER ---
+  // --- SUBMIT ORDER (CORECTAT) ---
   const handleSubmit = async () => {
     setError("");
     setSubmitting(true);
 
-    // 1. Validare simplă
     if (!customer.email || !customer.firstName || !customer.lastName) {
       setError("Te rugăm să completezi toate datele de contact.");
       setSubmitting(false);
       return;
     }
 
-    // 2. Pregătire payload
+    // Pregătire payload
     const items = Object.entries(quantities)
       .filter(([_, qty]) => qty > 0)
       .map(([categoryId, quantity]) => ({
-        categoryId,
+        categoryId, // Acesta trebuie să fie UUID-ul valid
         quantity,
       }));
+      
+    console.log("Trimitem la server:", { customer, items }); // DEBUG
 
     try {
-      // MODIFICARE: Folosim API_URL dinamic
       const res = await fetch(`${API_URL}/api/orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,25 +129,24 @@ export default function BookingPage() {
       });
 
       const result = await res.json();
+      console.log("Răspuns server:", result); // DEBUG
 
-      if (!result.success) {
+      if (!res.ok || !result.success) {
         throw new Error(result.error || "Eroare la procesare");
       }
 
-      // 3. Succes
-      alert(`Comandă plasată cu succes! ID: ${result.orderId}`);
-      
-      // Reset
-      setQuantities({}); 
-      setCustomer({ firstName: "", lastName: "", email: "", phone: "" });
-      
-      // Reîncărcăm stocurile pentru a reflecta vânzarea
-      window.location.reload(); 
+      // --- MODIFICARE CRITICĂ AICI ---
+      // Dacă avem URL de la Stripe, redirecționăm browserul acolo
+      if (result.url) {
+        window.location.href = result.url; 
+      } else {
+        throw new Error("Serverul nu a returnat link-ul de plată.");
+      }
 
     } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
+      console.error(err);
+      setError(err.message || "A apărut o eroare neașteptată.");
+      setSubmitting(false); // Oprim loading doar pe eroare
     }
   };
 
@@ -401,7 +394,7 @@ export default function BookingPage() {
 
               <div className="flex items-center justify-center gap-2 text-yellow-900/60 text-[10px] font-bold uppercase tracking-widest">
                 <span className="material-symbols-outlined text-sm">lock</span>
-                Plată securizată prin Netopia
+                Plată securizată prin Stripe
               </div>
             </div>
           </div>

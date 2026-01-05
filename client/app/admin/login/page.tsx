@@ -11,11 +11,16 @@ export default function AdminLogin() {
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Hardcoded password pentru demo. 
-    // În producție, asta se verifică pe server!
+    // 1. Verificare HARDCODED (Fără API)
     if (password === 'concert2025') {
-      localStorage.setItem('admin_auth', 'true');
-      router.push('/admin/dashboard');
+      
+      // 2. Setăm token-ul pe care îl așteaptă Scanner-ul
+      // Folosim cheia "adminToken" pe care o caută pagina de scanare
+      localStorage.setItem('adminToken', 'admin-logged-in-securely');
+      
+      // 3. Redirecționare către Scanner
+      router.push('/admin/scan');
+      
     } else {
       setError('Parolă incorectă');
     }
@@ -24,7 +29,6 @@ export default function AdminLogin() {
   return (
     <div className="min-h-screen bg-[#0a0905] flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-[#14120c] border border-yellow-900/30 p-8 rounded-3xl shadow-2xl relative overflow-hidden">
-        {/* Decor */}
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-900 via-yellow-500 to-yellow-900"></div>
 
         <div className="text-center mb-8">
