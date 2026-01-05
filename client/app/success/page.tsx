@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { QRCodeCanvas } from 'qrcode.react';
-import QRCode from 'qrcode'; // Librăria pentru generare logică (nu vizuală)
+import QRCode from 'qrcode'; 
 
-// Importăm librăria de PDF cu dynamic import pentru a evita erorile de SSR în Next.js
 import dynamic from "next/dynamic";
 import { TicketDocument } from "./TicketPDF";
 
@@ -18,13 +17,13 @@ const PDFDownloadLink = dynamic(
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-export default function SuccessPage() {
+// 1. MUTĂM TOATĂ LOGICA ÎNTR-O COMPONENTĂ SEPARATĂ (SuccessContent)
+function SuccessContent() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("orderId");
   const [status, setStatus] = useState("loading"); 
   const [orderDetails, setOrderDetails] = useState<any>(null);
   
-  // Stocăm imaginile QR generate (base64) pentru PDF
   const [qrCodesForPDF, setQrCodesForPDF] = useState<Record<string, string>>({});
   
   const processedRef = useRef(false);
@@ -46,11 +45,9 @@ export default function SuccessPage() {
         const detailsRes = await fetch(`${API_URL}/api/orders/${orderId}`);
         const detailsData = await detailsRes.json();
         
-        // Generăm codurile QR pentru PDF în avans
         const qrMap: Record<string, string> = {};
         if (detailsData.items) {
             for (const item of detailsData.items) {
-                // Creăm un Data URL (imagine base64) pentru fiecare cod
                 const dataUrl = await QRCode.toDataURL(item.unique_qr_id, { width: 300, margin: 1 });
                 qrMap[item.unique_qr_id] = dataUrl;
             }
@@ -72,8 +69,7 @@ export default function SuccessPage() {
   if (!orderId) return <div className="text-white p-10">Eroare: Lipsă Order ID</div>;
 
   return (
-    <div className="min-h-screen bg-[#0a0905] text-[#faeacc] pt-10 px-4 flex flex-col items-center pb-20">
-      
+    <div className="flex flex-col items-center w-full">
       {status === "loading" && (
         <div className="text-center mt-20">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-yellow-500 mx-auto mb-6"></div>
@@ -102,7 +98,6 @@ export default function SuccessPage() {
           <h1 className="text-4xl font-black text-yellow-500 mb-2 text-center">Plată Reușită!</h1>
           <p className="text-lg text-[#faeacc]/80 mb-10 text-center">Locurile tale au fost rezervate.</p>
 
-          {/* PREVIEW BILETE PE ECRAN (HTML/CSS Standard) */}
           <div className="w-full bg-[#14120c] border border-yellow-900/30 rounded-3xl p-8 mb-10 relative overflow-hidden shadow-2xl">
              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-yellow-900 via-yellow-500 to-yellow-900"></div>
              
@@ -121,10 +116,7 @@ export default function SuccessPage() {
              </div>
           </div>
 
-          {/* BUTOANE */}
           <div className="flex flex-col sm:flex-row gap-4 w-full max-w-lg">
-            
-            {/* BUTONUL DE DOWNLOAD PDF */}
             <div className="flex-1">
                 <PDFDownloadLink
                     document={<TicketDocument orderDetails={orderDetails} qrCodes={qrCodesForPDF} />}
@@ -155,6 +147,22 @@ export default function SuccessPage() {
 
         </div>
       )}
+    </div>
+  );
+}
+
+// 2. EXPORTĂM PAGINA PRINCIPALĂ CARE ÎNFĂȘOARĂ TOTUL ÎN SUSPENSE
+export default function SuccessPage() {
+  return (
+    <div className="min-h-screen bg-[#0a0905] text-[#faeacc] pt-10 px-4 flex flex-col items-center pb-20">
+      <Suspense fallback={
+        <div className="text-center mt-20">
+             <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-yellow-500 mx-auto"></div>
+             <p className="mt-4 text-yellow-500">Se inițializează...</p>
+        </div>
+      }>
+        <SuccessContent />
+      </Suspense>
     </div>
   );
 }
