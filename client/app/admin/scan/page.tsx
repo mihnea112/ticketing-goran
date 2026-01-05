@@ -33,6 +33,7 @@ export default function AdminScanPage() {
     setPaused(true);
 
     try {
+      // Redăm sunetul manual
       const audio = new Audio('/beep.mp3'); 
       audio.play().catch(() => {}); 
 
@@ -43,7 +44,7 @@ export default function AdminScanPage() {
         method: "POST",
         headers: { 
             "Content-Type": "application/json",
-            "Authorization": token || "" // Aici trimitem parola secretă (token)
+            "Authorization": token || "" 
         },
         body: JSON.stringify({ qrCode: rawValue }),
       });
@@ -98,9 +99,10 @@ export default function AdminScanPage() {
               </div>
             )}
             
+            {/* AICI AM FĂCUT MODIFICAREA: Am scos 'audio: false' */}
             <Scanner 
               onScan={handleScan}
-              components={{ audio: false, finder: false }} 
+              components={{ finder: false }} 
               styles={{ container: { width: '100%', height: '100%' } }}
             />
 
