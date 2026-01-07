@@ -4,18 +4,13 @@ import { Pool } from "pg";
 import Stripe from "stripe";
 import dotenv from "dotenv";
 
-// 1. Încărcăm variabilele de mediu
+// 1. Configurare Mediu
 dotenv.config();
 
-// --- DEBUG CRITIC: Verificăm dacă cheile există ---
+// Verificări critice
 if (!process.env.STRIPE_SECRET_KEY) {
-  console.error("❌ EROARE FATALĂ: Lipsește STRIPE_SECRET_KEY din .env");
+  console.error("❌ EROARE: Lipsește STRIPE_SECRET_KEY în .env");
   process.exit(1);
-}
-if (!process.env.CLIENT_URL) {
-  console.error(
-    "⚠️ ATENȚIE: Lipsește CLIENT_URL din .env. Folosim http://localhost:3000 default."
-  );
 }
 
 const app = express();
@@ -28,13 +23,13 @@ const pool = new Pool({
 });
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2025-12-15.clover",
+  apiVersion: "2025-12-15.clover" as any,
 });
 
 app.use(cors());
 app.use(express.json());
 
-// --- HELPER: Normalizează datele din DB ---
+// --- HELPER: Mapare Categorie ---
 const mapCategory = (row: any) => ({
   id: row.id,
   code: row.code,
@@ -43,23 +38,20 @@ const mapCategory = (row: any) => ({
   totalQuantity: Number(row.totalQuantity || row.totalquantity || 0),
   soldQuantity: Number(row.soldQuantity || row.soldquantity || 0),
   badge: row.badge,
+  series: row.series_prefix,
 });
 
 // ==========================================
-// RUTA 1: GET TICKETS
+// RUTA 1: GET TICKETS (Listare Categorii)
 // ==========================================
 app.get("/api/tickets", async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT * FROM ticket_categories ORDER BY price ASC"
-    );
-
+    const result = await pool.query("SELECT * FROM ticket_categories ORDER BY price ASC");
     const tickets = result.rows.map(mapCategory).map((t: any) => ({
       ...t,
       available: t.totalQuantity - t.soldQuantity,
       isSoldOut: t.totalQuantity <= t.soldQuantity,
     }));
-
     res.json(tickets);
   } catch (error) {
     console.error("Error fetching tickets:", error);
@@ -68,86 +60,60 @@ app.get("/api/tickets", async (req, res) => {
 });
 
 // ==========================================
-// RUTA 2: POST ORDER
+// RUTA 2: POST ORDER (Creare Comandă Stripe - PENDING)
 // ==========================================
 app.post("/api/orders", async (req, res) => {
   const client = await pool.connect();
-
   try {
     const { customer, items } = req.body;
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Coșul de cumpărături este gol." });
-    }
-    if (!customer || !customer.email) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Datele clientului sunt incomplete." });
-    }
+    
+    if (!items?.length) return res.status(400).json({ error: "Coș gol" });
+    if (!customer?.email) return res.status(400).json({ error: "Lipsă email" });
 
     await client.query("BEGIN");
 
     let calculatedTotal = 0;
     const lineItemsForStripe = [];
 
+    // Verificăm prețurile și stocul
     for (const item of items) {
-      if (!item.categoryId || item.categoryId === "undefined") {
-        throw new Error(`Item invalid detectat!`);
-      }
-
-      const ticketRes = await client.query(
-        "SELECT * FROM ticket_categories WHERE id = $1",
-        [item.categoryId]
-      );
-      if (ticketRes.rows.length === 0)
-        throw new Error(`Nu există bilet cu ID-ul: ${item.categoryId}`);
+      const ticketRes = await client.query("SELECT * FROM ticket_categories WHERE id = $1", [item.categoryId]);
+      if (ticketRes.rows.length === 0) throw new Error(`Categorie invalidă: ${item.categoryId}`);
 
       const ticketData = mapCategory(ticketRes.rows[0]);
-      const price = ticketData.price;
-      calculatedTotal += price * item.quantity;
+      calculatedTotal += ticketData.price * item.quantity;
 
       lineItemsForStripe.push({
         price_data: {
           currency: "ron",
-          product_data: {
-            name: ticketData.name,
-            description: "Concert Goran Bregović",
-          },
-          unit_amount: Math.round(price * 100),
+          product_data: { name: ticketData.name, description: "Concert Goran Bregović" },
+          unit_amount: Math.round(ticketData.price * 100),
         },
         quantity: item.quantity,
       });
     }
 
+    // Creăm comanda (PENDING) - NU generăm bilete încă!
     const orderRes = await client.query(
       `INSERT INTO orders (customername, customeremail, totalamount, status) 
        VALUES ($1, $2, $3, 'pending') RETURNING id`,
-      [
-        customer.firstName + " " + customer.lastName,
-        customer.email,
-        calculatedTotal,
-      ]
+      [`${customer.firstName} ${customer.lastName}`, customer.email, calculatedTotal]
     );
     const orderId = orderRes.rows[0].id;
 
+    // Salvăm itemele în order_items
     for (const item of items) {
-      const ticketRes = await client.query(
-        "SELECT price FROM ticket_categories WHERE id = $1",
-        [item.categoryId]
-      );
-      const rawPrice = ticketRes.rows[0].price;
-
+      const tRes = await client.query("SELECT price FROM ticket_categories WHERE id = $1", [item.categoryId]);
       await client.query(
         `INSERT INTO order_items (orderid, ticketcategoryid, quantity, priceperunit)
          VALUES ($1, $2, $3, $4)`,
-        [orderId, item.categoryId, item.quantity, rawPrice]
+        [orderId, item.categoryId, item.quantity, tRes.rows[0].price]
       );
     }
 
     await client.query("COMMIT");
 
+    // Creăm sesiunea Stripe
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: lineItemsForStripe,
@@ -161,55 +127,40 @@ app.post("/api/orders", async (req, res) => {
     res.json({ success: true, url: session.url });
   } catch (error: any) {
     await client.query("ROLLBACK");
-    console.error("❌ EROARE SERVER:", error.message);
-    res
-      .status(500)
-      .json({
-        success: false,
-        error: error.message || "Eroare la procesarea comenzii",
-      });
+    console.error("Order Error:", error.message);
+    res.status(500).json({ success: false, error: error.message });
   } finally {
     client.release();
   }
 });
 
 // ==========================================
-// RUTA 3: GET ORDER DETAILS
+// RUTA 3: GET ORDER DETAILS (Citire din tabelul TICKETS)
 // ==========================================
 app.get("/api/orders/:id", async (req, res) => {
   const { id } = req.params;
-  if (!id || id === "undefined")
-    return res.status(400).json({ error: "ID comandă invalid." });
-
+  
   try {
-    const orderRes = await pool.query("SELECT * FROM orders WHERE id = $1", [
-      id,
-    ]);
-    if (orderRes.rows.length === 0)
-      return res.status(404).json({ error: "Comanda nu a fost găsită" });
+    const orderRes = await pool.query("SELECT * FROM orders WHERE id = $1", [id]);
+    if (orderRes.rows.length === 0) return res.status(404).json({ error: "Comanda inexistentă" });
 
-    const itemsRes = await pool.query(
-      `SELECT oi.id as db_id, oi.quantity, oi.priceperunit, tc.name as category_name, tc.code as category_code 
-       FROM order_items oi
-       JOIN ticket_categories tc ON oi.ticketcategoryid = tc.id
-       WHERE oi.orderid = $1`,
+    // Aici citim biletele generate fizic în tabelul tickets
+    const ticketsRes = await pool.query(
+      `SELECT t.unique_qr_code as unique_qr_id, 
+              t.ticket_display, 
+              t.series_prefix,
+              t.ticket_number,
+              tc.name as category_name, 
+              tc.code as category_code,
+              tc.price as priceperunit
+       FROM tickets t
+       JOIN ticket_categories tc ON t.category_id = tc.id
+       WHERE t.order_id = $1
+       ORDER BY t.ticket_number ASC`,
       [id]
     );
 
-    const expandedTickets = [];
-    for (const item of itemsRes.rows) {
-      for (let i = 0; i < item.quantity; i++) {
-        expandedTickets.push({
-          unique_qr_id: `${item.db_id}-${i + 1}`,
-          priceperunit: Number(item.priceperunit),
-          category_name: item.category_name,
-          category_code: item.category_code,
-          ticket_number: i + 1,
-        });
-      }
-    }
-
-    res.json({ ...orderRes.rows[0], items: expandedTickets });
+    res.json({ ...orderRes.rows[0], items: ticketsRes.rows });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Eroare server" });
@@ -217,135 +168,7 @@ app.get("/api/orders/:id", async (req, res) => {
 });
 
 // ==========================================
-// RUTA 4: ADMIN STATS (FINAL - FĂRĂ FILTRU 24H)
-// ==========================================
-app.get("/api/admin/stats", async (req, res) => {
-  try {
-    const client = await pool.connect();
-
-    // 1. Statistici generale
-    const statsRes = await client.query(`
-      SELECT 
-        COALESCE(SUM(totalamount), 0) as revenue,
-        COUNT(id) as orders
-      FROM orders
-    `);
-
-    // 2. Inventar
-    const inventoryRes = await client.query(`
-      SELECT id, name, code, price, "totalQuantity", 
-             (SELECT COALESCE(SUM(quantity), 0) FROM order_items WHERE ticketcategoryid = ticket_categories.id) as sold_quantity
-      FROM ticket_categories
-    `);
-
-    // 3. Chart Data
-    const chartRes = await client.query(`
-      SELECT TO_CHAR(created_at, 'Day') as day, SUM(totalamount) as sales
-      FROM orders
-      WHERE created_at > NOW() - INTERVAL '7 days'
-      GROUP BY TO_CHAR(created_at, 'Day'), created_at
-      ORDER BY created_at
-    `);
-
-    // 4. ULTIMELE COMENZI (MODIFICAT: Fără limită de timp, doar ultimele 50)
-    // Aici statusul este selectat direct din DB (o.status)
-    const recentOrdersRes = await client.query(`
-      SELECT 
-        o.id, 
-        o.customername, 
-        o.status, 
-        TO_CHAR(o.created_at, 'DD.MM HH24:MI') as formatted_date,
-        o.totalamount,
-        COALESCE(SUM(oi.quantity), 0) as total_tickets
-      FROM orders o
-      LEFT JOIN order_items oi ON o.id = oi.orderid
-      GROUP BY o.id, o.customername, o.created_at, o.totalamount, o.status
-      ORDER BY o.created_at DESC
-      LIMIT 50
-    `);
-
-    // Calcule auxiliare
-    const totalCapacity = inventoryRes.rows.reduce(
-      (acc, item) => acc + (item.totalQuantity || item.total_quantity || 0),
-      0
-    );
-    const ticketsSold = inventoryRes.rows.reduce(
-      (acc, item) => acc + parseInt(item.sold_quantity),
-      0
-    );
-
-    // Formatare răspuns
-    const inventory = inventoryRes.rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      code: row.code,
-      price: parseFloat(row.price),
-      totalQuantity: row.totalQuantity || 0,
-      soldQuantity: parseInt(row.sold_quantity),
-    }));
-
-    const recentOrders = recentOrdersRes.rows.map((row) => ({
-      id: row.id,
-      customer: row.customername,
-      quantity: parseInt(row.total_tickets),
-      date: row.formatted_date,
-      status: row.status, // <--- CRITIC: Aici luăm valoarea 'paid' sau 'pending' din DB
-    }));
-
-    client.release();
-
-    res.json({
-      stats: {
-        revenue: parseFloat(statsRes.rows[0].revenue),
-        orders: parseInt(statsRes.rows[0].orders),
-        ticketsSold,
-        totalCapacity,
-      },
-      chart: chartRes.rows.map((r) => ({
-        day: r.day.trim(),
-        sales: parseFloat(r.sales),
-      })),
-      inventory,
-      recentOrders,
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Server Error" });
-  }
-});
-
-// ==========================================
-// RUTA 5: SEED DATABASE
-// ==========================================
-app.get("/seed", async (req, res) => {
-  try {
-    const check = await pool.query(
-      "SELECT COUNT(*) as count FROM ticket_categories"
-    );
-    if (parseInt(check.rows[0].count) > 0)
-      return res.send("Database already seeded!");
-
-    const queryText = `INSERT INTO ticket_categories (code, name, price, "totalQuantity", badge, "soldQuantity") VALUES ($1, $2, $3, $4, $5, 0)`;
-
-    await pool.query(queryText, ["gold", "VIP Gold", 450, 100, "EXCLUSIV"]);
-    await pool.query(queryText, ["tribune", "Tribună", 250, 500, "POPULAR"]);
-    await pool.query(queryText, [
-      "general",
-      "Acces General",
-      150,
-      2000,
-      "BEST VALUE",
-    ]);
-
-    res.send("Supabase seeded successfully!");
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).send("Error seeding: " + err.message);
-  }
-});
-
-// ==========================================
-// RUTA 6: CONFIRM ORDER
+// RUTA 4: CONFIRM ORDER (Generare Bilete - THE FIX)
 // ==========================================
 app.post("/api/orders/confirm", async (req, res) => {
   const { orderId } = req.body;
@@ -355,31 +178,61 @@ app.post("/api/orders/confirm", async (req, res) => {
     if (!orderId) throw new Error("Lipseste Order ID");
     await client.query("BEGIN");
 
-    const checkRes = await client.query(
-      "SELECT status FROM orders WHERE id = $1",
-      [orderId]
-    );
+    // 1. Verificăm comanda (Lock for update)
+    const checkRes = await client.query("SELECT status FROM orders WHERE id = $1 FOR UPDATE", [orderId]);
     if (checkRes.rows.length === 0) throw new Error("Comanda nu există");
+    
+    // Dacă e deja plătită, întoarcem succes (idempotency)
     if (checkRes.rows[0].status === "paid") {
       await client.query("ROLLBACK");
-      return res.json({
-        success: true,
-        message: "Comanda era deja confirmată",
-      });
+      return res.json({ success: true, message: "Comanda era deja confirmată" });
     }
 
-    await client.query("UPDATE orders SET status = 'paid' WHERE id = $1", [
-      orderId,
-    ]);
+    // 2. Setăm statusul PAID
+    await client.query("UPDATE orders SET status = 'paid' WHERE id = $1", [orderId]);
 
+    // 3. Preluăm itemele comenzii
     const itemsRes = await client.query(
-      "SELECT ticketcategoryid, quantity FROM order_items WHERE orderid = $1",
+      `SELECT oi.id, oi.ticketcategoryid, oi.quantity, tc.series_prefix 
+       FROM order_items oi
+       JOIN ticket_categories tc ON oi.ticketcategoryid = tc.id
+       WHERE oi.orderid = $1`,
       [orderId]
     );
+
+    // 4. GENERĂM BILETELE ÎN TABELUL 'tickets'
     for (const item of itemsRes.rows) {
+      // Blocăm categoria pentru a lua numărul corect (Concurrency safe)
+      const catRes = await client.query(
+        `SELECT "soldQuantity" FROM ticket_categories WHERE id = $1 FOR UPDATE`,
+        [item.ticketcategoryid]
+      );
+
+      let currentSold = Number(catRes.rows[0].soldQuantity);
+      
+      for (let i = 0; i < item.quantity; i++) {
+        currentSold++; 
+        
+        const ticketNumber = currentSold;
+        const series = item.series_prefix || "GEN";
+        const displayID = `${series} ${ticketNumber}`; // Ex: "GA 105"
+        
+        // Generăm un cod unic pentru QR
+        const uniqueQR = `${item.id}-${i+1}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 5)}`; 
+
+        // INSERT ÎN TICKETS
+        await client.query(
+          `INSERT INTO tickets 
+          (order_id, category_id, series_prefix, ticket_number, ticket_display, unique_qr_code, status)
+          VALUES ($1, $2, $3, $4, $5, $6, 'valid')`,
+          [orderId, item.ticketcategoryid, series, ticketNumber, displayID, uniqueQR]
+        );
+      }
+
+      // Actualizăm stocul total în categorii
       await client.query(
-        `UPDATE ticket_categories SET "soldQuantity" = "soldQuantity" + $1 WHERE id = $2`,
-        [item.quantity, item.ticketcategoryid]
+        `UPDATE ticket_categories SET "soldQuantity" = $1 WHERE id = $2`,
+        [currentSold, item.ticketcategoryid]
       );
     }
 
@@ -395,89 +248,158 @@ app.post("/api/orders/confirm", async (req, res) => {
 });
 
 // ==========================================
-// RUTA 7: ADMIN SCAN (QR CHECK-IN)
+// RUTA 5: ADMIN SCAN (Verificare în tabelul TICKETS)
 // ==========================================
 app.post("/api/admin/scan", async (req, res) => {
   const { qrCode } = req.body;
-  const client = await pool.connect();
-
+  
   try {
-    console.log("📸 Scanat:", qrCode);
-    if (!qrCode || !qrCode.includes("-"))
-      return res
-        .status(400)
-        .json({ valid: false, message: "Format QR Invalid" });
-
-    const checkScan = await client.query(
-      "SELECT * FROM scanned_tickets WHERE unique_qr_id = $1",
+    // Căutăm biletul direct după codul QR unic în tabelul 'tickets'
+    const ticketRes = await pool.query(
+      `SELECT t.*, tc.name as category_name, o.customername 
+       FROM tickets t
+       JOIN ticket_categories tc ON t.category_id = tc.id
+       JOIN orders o ON t.order_id = o.id
+       WHERE t.unique_qr_code = $1`,
       [qrCode]
     );
-    if (checkScan.rows.length > 0) {
-      const scannedAt = new Date(
-        checkScan.rows[0].scanned_at
-      ).toLocaleTimeString();
-      return res
-        .status(409)
-        .json({
-          valid: false,
-          message: `Bilet DEJA FOLOSIT la ora ${scannedAt}!`,
-        });
+
+    if (ticketRes.rows.length === 0) {
+      return res.status(404).json({ valid: false, message: "Bilet NECUNOSCUT." });
     }
 
-    const lastDashIndex = qrCode.lastIndexOf("-");
-    const dbId = qrCode.substring(0, lastDashIndex);
-    const ticketIndex = parseInt(qrCode.substring(lastDashIndex + 1));
+    const ticket = ticketRes.rows[0];
 
-    const itemRes = await client.query(
-      `SELECT oi.quantity, tc.name as category_name, o.customername 
-       FROM order_items oi
-       JOIN ticket_categories tc ON oi.ticketcategoryid = tc.id
-       JOIN orders o ON oi.orderid = o.id
-       WHERE oi.id = $1`,
-      [dbId]
-    );
-
-    if (itemRes.rows.length === 0)
-      return res
-        .status(404)
-        .json({ valid: false, message: "Biletul nu există în sistem." });
-
-    const ticketData = itemRes.rows[0];
-    if (ticketIndex > ticketData.quantity || ticketIndex < 1) {
-      return res
-        .status(400)
-        .json({
-          valid: false,
-          message: "Număr bilet invalid (Index mismatch).",
-        });
+    if (ticket.status === 'used') {
+       return res.status(409).json({ 
+         valid: false, 
+         message: `Bilet DEJA FOLOSIT! (${ticket.ticket_display})`,
+         details: { customer: ticket.customername }
+       });
     }
 
-    await client.query(
-      "INSERT INTO scanned_tickets (unique_qr_id) VALUES ($1)",
-      [qrCode]
-    );
+    // Îl marcăm ca folosit
+    await pool.query("UPDATE tickets SET status = 'used' WHERE id = $1", [ticket.id]);
 
     res.json({
       valid: true,
-      customer: ticketData.customername,
-      category: ticketData.category_name,
-      ticketNumber: `${ticketIndex} / ${ticketData.quantity}`,
+      customer: ticket.customername,
+      category: ticket.category_name,
+      ticketNumber: ticket.ticket_display,
     });
+
   } catch (error: any) {
     console.error("Scan Error:", error);
     res.status(500).json({ valid: false, message: "Eroare Server" });
-  } finally {
-    client.release();
   }
 });
 
-// Login Admin
+// ==========================================
+// RUTA 6: ADMIN STATS
+// ==========================================
+app.get("/api/admin/stats", async (req, res) => {
+  try {
+    const statsRes = await pool.query(`SELECT COALESCE(SUM(totalamount), 0) as revenue, COUNT(id) as orders FROM orders WHERE status = 'paid'`);
+    const inventoryRes = await pool.query('SELECT id, name, code, "totalQuantity", "soldQuantity" FROM ticket_categories');
+    
+    // Chart
+    const chartRes = await pool.query(`
+      SELECT TO_CHAR(created_at, 'Day') as day, SUM(totalamount) as sales
+      FROM orders WHERE status='paid' AND created_at > NOW() - INTERVAL '7 days'
+      GROUP BY TO_CHAR(created_at, 'Day'), created_at ORDER BY created_at
+    `);
+
+    // Recente
+    const recentOrdersRes = await pool.query(`
+        SELECT o.id, o.customername, o.totalamount, TO_CHAR(o.created_at, 'DD.MM HH24:MI') as formatted_date
+        FROM orders o WHERE status='paid' ORDER BY created_at DESC LIMIT 10
+    `);
+
+    res.json({
+      stats: {
+        revenue: parseFloat(statsRes.rows[0].revenue),
+        orders: parseInt(statsRes.rows[0].orders),
+        ticketsSold: inventoryRes.rows.reduce((acc, i) => acc + i.soldQuantity, 0),
+      },
+      chart: chartRes.rows.map(r => ({ day: r.day.trim(), sales: parseFloat(r.sales) })),
+      inventory: inventoryRes.rows,
+      recentOrders: recentOrdersRes.rows.map(r => ({
+          id: r.id, customer: r.customername, status: 'paid', date: r.formatted_date
+      }))
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Server Error" });
+  }
+});
+
+// ==========================================
+// RUTA DE LOGIN
+// ==========================================
 app.post("/api/admin/login", (req, res) => {
   const { password } = req.body;
   if (password === "concert2025") {
     res.json({ success: true, token: "admin-logged-in-securely" });
   } else {
     res.status(401).json({ success: false, error: "Parolă incorectă" });
+  }
+});
+
+// ==========================================
+// RUTA 7: REGENERARE BILETE (FIX PENTRU TABEL GOL)
+// ==========================================
+// Accesează http://localhost:4000/api/debug/regenerate în browser pentru a repara comenzile vechi
+app.get("/api/debug/regenerate", async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // 1. Curățăm tabelul tickets și resetăm stocurile pentru a recalcula totul corect
+    await client.query("TRUNCATE TABLE tickets RESTART IDENTITY CASCADE");
+    await client.query('UPDATE ticket_categories SET "soldQuantity" = 0');
+
+    // 2. Luăm toate comenzile PLĂTITE
+    const ordersRes = await client.query("SELECT id FROM orders WHERE status = 'paid' ORDER BY created_at ASC");
+
+    for (const order of ordersRes.rows) {
+      const itemsRes = await client.query(
+        `SELECT oi.id, oi.ticketcategoryid, oi.quantity, tc.series_prefix 
+         FROM order_items oi
+         JOIN ticket_categories tc ON oi.ticketcategoryid = tc.id
+         WHERE oi.orderid = $1`,
+        [order.id]
+      );
+
+      for (const item of itemsRes.rows) {
+        // Recalculăm stocurile pas cu pas
+        const catRes = await client.query(`SELECT "soldQuantity" FROM ticket_categories WHERE id = $1 FOR UPDATE`, [item.ticketcategoryid]);
+        let currentSold = Number(catRes.rows[0].soldQuantity);
+
+        for (let i = 0; i < item.quantity; i++) {
+          currentSold++;
+          const ticketNumber = currentSold;
+          const series = item.series_prefix || "GEN";
+          const displayID = `${series} ${ticketNumber}`;
+          const uniqueQR = `${item.id}-${i + 1}-REGEN-${Date.now()}`; // QR generat retroactiv
+
+          await client.query(
+            `INSERT INTO tickets 
+            (order_id, category_id, series_prefix, ticket_number, ticket_display, unique_qr_code, status)
+            VALUES ($1, $2, $3, $4, $5, $6, 'valid')`,
+            [order.id, item.ticketcategoryid, series, ticketNumber, displayID, uniqueQR]
+          );
+        }
+        await client.query(`UPDATE ticket_categories SET "soldQuantity" = $1 WHERE id = $2`, [currentSold, item.ticketcategoryid]);
+      }
+    }
+
+    await client.query("COMMIT");
+    res.send(`✅ REPARAT! Bilete regenerate pentru ${ordersRes.rows.length} comenzi.`);
+  } catch (error: any) {
+    await client.query("ROLLBACK");
+    res.status(500).send("Eroare: " + error.message);
+  } finally {
+    client.release();
   }
 });
 

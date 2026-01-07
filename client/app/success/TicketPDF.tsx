@@ -1,140 +1,232 @@
-import React from 'react';
-import { Page, Text, View, Document, StyleSheet, Image, Font } from '@react-pdf/renderer';
+import React from "react";
+import {
+  Page,
+  Text,
+  View,
+  Document,
+  StyleSheet,
+  Image,
+} from "@react-pdf/renderer";
 
-// Opțional: Înregistrează un font care suportă diacritice (folosim Helvetica default momentan)
-// Font.register({ family: 'Roboto', src: 'https://...' });
-
+// Stiluri
 const styles = StyleSheet.create({
   page: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     padding: 30,
-    fontFamily: 'Helvetica',
+    fontFamily: "Helvetica",
   },
   header: {
     borderBottomWidth: 2,
-    borderBottomColor: '#EAB308', // Yellow-500
-    paddingBottom: 10,
+    borderBottomColor: "#EAB308", // Yellow-500
+    paddingBottom: 15,
     marginBottom: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  headerLeft: {
+    flexDirection: "column",
+    maxWidth: "60%",
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold', // Helvetica bold
-    textTransform: 'uppercase',
-    color: '#000000',
+    fontSize: 20,
+    fontFamily: "Helvetica-Bold",
+    textTransform: "uppercase",
+    color: "#000000",
   },
   subtitle: {
-    fontSize: 14,
-    color: '#EAB308',
+    fontSize: 12,
+    color: "#CA8A04", // Yellow-600
     marginTop: 5,
+    fontFamily: "Helvetica-Bold",
+    textTransform: "uppercase",
+  },
+  tourText: {
+    fontSize: 10,
+    color: "#854D0E",
+    marginTop: 2,
+    fontFamily: "Helvetica-Oblique",
+  },
+  metaContainer: {
+    alignItems: "flex-end",
   },
   meta: {
     fontSize: 10,
-    color: '#666666',
-    textAlign: 'right',
+    color: "#666666",
+    marginBottom: 2,
   },
+  // --- STILURI CARD BILET ---
   ticketContainer: {
-    marginBottom: 20,
-    padding: 15,
+    marginBottom: 15,
+    padding: 0,
     borderWidth: 1,
-    borderColor: '#CCCCCC',
+    borderColor: "#E5E7EB", // Gray-200
     borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    overflow: "hidden",
+  },
+  leftDecor: {
+    width: 8,
+    backgroundColor: "#EAB308", // Banda galbena
+    height: "100%",
+  },
+  contentContainer: {
+    flex: 1,
+    padding: 15,
+    flexDirection: "row",
   },
   qrContainer: {
-    width: 100,
-    height: 100,
+    width: 90,
+    height: 90,
     marginRight: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#FAFAFA",
+    borderWidth: 1,
+    borderColor: "#EEEEEE",
+    borderRadius: 4,
   },
   qrImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   infoContainer: {
     flex: 1,
+    justifyContent: "space-between",
   },
-  badge: {
-    backgroundColor: '#FEF08A', // Yellow-200
-    color: '#854D0E', // Yellow-900
-    padding: 4,
-    fontSize: 8,
-    alignSelf: 'flex-start',
+  categoryName: {
+    fontSize: 16,
+    fontFamily: "Helvetica-Bold",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  seriesBox: {
+    alignSelf: "flex-start",
+    backgroundColor: "#FEF9C3", // Yellow-100
+    borderWidth: 1,
+    borderColor: "#EAB308", // Yellow-500
     borderRadius: 4,
-    marginBottom: 5,
-    textTransform: 'uppercase',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    marginBottom: 8,
   },
-  ticketName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 5,
+  seriesText: {
+    color: "#854D0E", // Yellow-900
+    fontSize: 14,
+    fontFamily: "Helvetica-Bold",
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   price: {
-    fontSize: 12,
-    color: '#444444',
-    marginBottom: 10,
+    fontSize: 10,
+    color: "#6B7280",
+  },
+  footerCode: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   codeLabel: {
     fontSize: 8,
-    color: '#888888',
-    textTransform: 'uppercase',
+    color: "#9CA3AF",
   },
   codeValue: {
-    fontSize: 10,
-    fontFamily: 'Helvetica-Bold', // Simulăm monospace
-    color: '#EAB308',
+    fontSize: 8,
+    fontFamily: "Helvetica-Bold",
+    color: "#4B5563",
   },
   footer: {
-    marginTop: 30,
-    textAlign: 'center',
-    fontSize: 10,
-    color: '#888888',
+    position: "absolute",
+    bottom: 30,
+    left: 30,
+    right: 30,
+    textAlign: "center",
+    fontSize: 9,
+    color: "#9CA3AF",
     borderTopWidth: 1,
-    borderTopColor: '#EEEEEE',
+    borderTopColor: "#E5E7EB",
     paddingTop: 10,
-  }
+  },
+  footerBold: {
+    fontFamily: "Helvetica-Bold",
+    color: "#1F2937",
+    marginTop: 4,
+    fontSize: 10,
+  },
 });
 
-// Componenta Documentului PDF
-export const TicketDocument = ({ orderDetails, qrCodes }: { orderDetails: any, qrCodes: Record<string, string> }) => (
+export const TicketDocument = ({
+  orderDetails,
+  qrCodes,
+}: {
+  orderDetails: any;
+  qrCodes: Record<string, string>;
+}) => (
   <Document>
     <Page size="A4" style={styles.page}>
-      
       {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Bilet Acces</Text>
-          <Text style={styles.subtitle}>Concert Goran Bregović</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.title}>Goran Bregovic</Text>
+          <Text style={styles.subtitle}>& Bijelo Dugme</Text>
+          <Text style={styles.tourText}>Turneu Aniversar "50 Ani - Dozivjeti Stotu"</Text>
         </View>
-        <View>
-          <Text style={styles.meta}>ID Comanda: {orderDetails.id?.slice(0, 8)}</Text>
-          <Text style={styles.meta}>Data: {new Date(orderDetails.created_at).toLocaleDateString()}</Text>
+        <View style={styles.metaContainer}>
+          <Text style={styles.meta}>
+            ID Comanda: #{orderDetails.id?.slice(0, 8).toUpperCase()}
+          </Text>
+          <Text style={styles.meta}>Client: {orderDetails.customername}</Text>
+          <Text style={styles.meta}>
+            Data Achizitiei:{" "}
+            {orderDetails.created_at
+              ? new Date(orderDetails.created_at).toLocaleDateString("ro-RO")
+              : new Date().toLocaleDateString("ro-RO")}
+          </Text>
         </View>
       </View>
 
       {/* Lista Bilete */}
       {orderDetails.items?.map((item: any, idx: number) => (
         <View key={idx} style={styles.ticketContainer}>
-          {/* QR Code (Imagine generată anterior) */}
-          <View style={styles.qrContainer}>
-            {qrCodes[item.unique_qr_id] && (
-              <Image src={qrCodes[item.unique_qr_id]} style={styles.qrImage} />
-            )}
-          </View>
+          <View style={styles.leftDecor} />
 
-          {/* Detalii Text */}
-          <View style={styles.infoContainer}>
-            <Text style={styles.badge}>
-                {item.category_code === 'gold' ? 'VIP GOLD' : item.category_code}
-            </Text>
-            <Text style={styles.ticketName}>{item.category_name}</Text>
-            <Text style={styles.price}>Pret: {item.priceperunit} RON</Text>
-            
-            <View style={{ marginTop: 5, borderTopWidth: 1, borderTopColor: '#EEE', paddingTop: 5 }}>
-                <Text style={styles.codeLabel}>Cod Unic Identificare:</Text>
+          <View style={styles.contentContainer}>
+            {/* QR Code */}
+            <View style={styles.qrContainer}>
+              {qrCodes[item.unique_qr_id] ? (
+                <Image
+                  src={qrCodes[item.unique_qr_id]}
+                  style={styles.qrImage}
+                />
+              ) : (
+                <Text style={{ fontSize: 8 }}>Loading...</Text>
+              )}
+            </View>
+
+            {/* Detalii Text */}
+            <View style={styles.infoContainer}>
+              <View>
+                {/* Asigurati-va ca numele categoriei vine fara diacritice din DB sau faceti replace aici */}
+                <Text style={styles.categoryName}>{item.category_name}</Text>
+
+                <View style={styles.seriesBox}>
+                  <Text style={styles.seriesText}>
+                    {item.ticket_display || "PENDING"}
+                  </Text>
+                </View>
+
+                <Text style={styles.price}>
+                  Pret: {item.priceperunit} RON
+                </Text>
+              </View>
+
+              <View style={styles.footerCode}>
+                <Text style={styles.codeLabel}>Valabil pentru 1 persoana</Text>
                 <Text style={styles.codeValue}>{item.unique_qr_id}</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -142,10 +234,16 @@ export const TicketDocument = ({ orderDetails, qrCodes }: { orderDetails: any, q
 
       {/* Footer */}
       <View style={styles.footer}>
-        <Text>Va rugam sa prezentati acest document (imprimat sau pe telefon) la intrare.</Text>
-        <Text>Biletele sunt nominale si netransmisibile.</Text>
+        <Text style={styles.footerBold}>
+          14 FEBRUARIE 2026 • ORA 20:00 • SALA CONSTANTIN JUDE, TIMISOARA
+        </Text>
+        <Text style={{ marginTop: 4 }}>
+          Organizator: Asociatia Centrul Cultural Sarbesc Constantin
+        </Text>
+        <Text style={{ marginTop: 20, fontSize: 8, color: '#D1D5DB' }}>
+          Codul QR este unic si valid pentru o singura scanare la intrare. Nu instrainati biletul.
+        </Text>
       </View>
-
     </Page>
   </Document>
 );

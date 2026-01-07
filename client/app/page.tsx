@@ -1,26 +1,21 @@
-"use client"; // Important pentru Next.js App Router când folosim hooks (useState, useEffect)
+"use client";
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 // --- CONFIGURARE URL API ---
-// Pe Vercel va lua valoarea setată în Environment Variables.
-// Local va folosi http://localhost:4000
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-// --- 1. CONFIGURARE UI (Date statice) ---
-// Mapăm codurile din DB ('gold', 'tribune', 'general') la listele de beneficii
+// --- CONFIGURARE UI (Beneficii Statice) ---
+// Noile beneficii pentru cele două tipuri de bilete
 const UI_FEATURES: Record<string, string[]> = {
-  gold: ['Primele rânduri', 'Acces VIP Lounge', 'Fast-track Entry'],
-  tribune: ['Loc pe scaun', 'Vedere centrală', 'Acces separat'],
-  general: ['Loc în picioare', 'Acces la bar', 'Zonă generală']
+  gold: ['Loc premium la concert', 'Vedere centrală excelentă', 'Acces prioritar'],
+  tribune: ['Loc pe scaun în tribună', 'Vedere bună a scenei', 'Acces rapid']
 };
 
-// Mapăm codurile pentru etichete (badge-uri) care nu sunt neapărat în DB
 const UI_BADGES: Record<string, string> = {
   gold: 'PREMIUM',
-  tribune: 'BEST SELLER',
-  general: ''
+  tribune: 'POPULAR'
 };
 
 interface TicketData {
@@ -38,21 +33,14 @@ export default function HomePage() {
   const [tickets, setTickets] = useState<TicketData[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // --- 2. FETCH DATA FROM BACKEND ---
+  // --- FETCH DATA ---
   useEffect(() => {
     const fetchTickets = async () => {
       try {
-        // MODIFICARE: Folosim API_URL dinamic pentru Deploy
         const res = await fetch(`${API_URL}/api/tickets`);
-        
-        if (!res.ok) {
-           console.error("API response not ok");
-           return;
-        }
-
+        if (!res.ok) return;
         const data = await res.json();
 
-        // Combinăm datele din DB cu beneficiile statice
         const processedTickets = data.map((t: any) => ({
           ...t,
           features: UI_FEATURES[t.code] || [],
@@ -71,207 +59,222 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="flex flex-col w-full bg-[#0a0905] min-h-screen">
+    <div className="flex flex-col w-full bg-[#0a0905] min-h-screen text-[#faeacc]">
       
       {/* --- HERO SECTION --- */}
       <section className="relative h-screen flex items-center justify-center overflow-hidden">
+        {/* Background Image & Overlay */}
         <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0a0905] via-[#0a0905]/60 to-transparent z-10" />
-          <div className="absolute inset-0 bg-[#1a1200]/30 z-0 mix-blend-overlay" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0a0905] via-[#0a0905]/70 to-black/40 z-10" />
+          <div className="absolute inset-0 bg-yellow-900/20 z-0 mix-blend-overlay" />
           
+          {/* Noua imagine de fundal, cu o trupă/concert live și o atmosferă aurie */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img 
-            src="https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?auto=format&fit=crop&q=80&w=1974" 
-            alt="Concert Hero" 
-            className="w-full h-full object-cover scale-110 grayscale brightness-75 sepia-[0.3]"
+            src="https://images.unsplash.com/photo-1574169208507-84376144848b?auto=format&fit=crop&q=80&w=2079" 
+            alt="Concert Hero Background" 
+            className="w-full h-full object-cover scale-105 opacity-60"
           />
         </div>
 
-        <div className="relative z-20 text-center px-4 max-w-5xl animate-in fade-in zoom-in duration-1000">
-          <span className="inline-block px-4 py-1 border border-yellow-500/50 rounded-full text-yellow-400 text-xs font-bold tracking-widest uppercase mb-8 backdrop-blur-md bg-black/30">
-            Concert Extraordinar
+        <div className="relative z-20 text-center px-4 max-w-6xl animate-in fade-in zoom-in duration-1000 mt-10">
+          <span className="inline-block px-6 py-2 border border-yellow-500/50 rounded-full text-yellow-400 text-sm font-bold tracking-[0.3em] uppercase mb-6 backdrop-blur-md bg-black/40 shadow-[0_0_15px_rgba(234,179,8,0.2)]">
+            Turneu Aniversar • Doživjeti Stotu
           </span>
-          <h1 className="text-6xl sm:text-8xl font-black mb-6 tracking-tighter text-[#faeacc]">
-            GORAN <span className="text-yellow-500 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">BREGOVIĆ</span>
+          
+          <h1 className="text-5xl sm:text-7xl lg:text-8xl font-black mb-2 tracking-tighter leading-none">
+            GORAN <span className="text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 drop-shadow-[0_0_25px_rgba(234,179,8,0.4)]">BREGOVIĆ</span>
           </h1>
-          <p className="text-xl sm:text-2xl text-yellow-100/80 font-light max-w-2xl mx-auto mb-10 leading-relaxed">
-            Muzică balcanică, energie pură și o atmosferă electrizantă. 
-            O seară de neuitat la Sala Palatului.
+          
+          <div className="flex items-center justify-center gap-4 mb-6">
+            <span className="h-[2px] w-12 bg-yellow-500/50"></span>
+            <h2 className="text-3xl sm:text-5xl font-serif italic text-yellow-100/90">
+              & Bijelo Dugme
+            </h2>
+            <span className="h-[2px] w-12 bg-yellow-500/50"></span>
+          </div>
+
+          <p className="text-lg sm:text-xl text-yellow-100/70 font-light max-w-3xl mx-auto mb-6 uppercase tracking-widest">
+            Alen Islamović <span className="text-yellow-500 mx-2">•</span> Mladen Vojičić Tifa
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+
+          {/* Adăugarea numelui asociației */}
+          <p className="text-sm sm:text-base text-yellow-200/60 font-light max-w-3xl mx-auto mb-10 tracking-widest">
+            Organizator: ASOCIAȚIA CENTRUL CULTURAL SÂRBESC CONSTANTIN
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-5 justify-center">
             <Link 
               href="/booking"
-              className="h-16 px-10 bg-yellow-500 text-black font-black text-lg rounded-xl hover:bg-[#faeacc] transition-all transform hover:-translate-y-1 shadow-[0_0_20px_rgba(234,179,8,0.3)] flex items-center justify-center gap-3"
+              className="h-14 px-12 bg-yellow-600 hover:bg-yellow-500 text-black font-black text-lg rounded-full transition-all transform hover:-translate-y-1 shadow-[0_0_30px_rgba(234,179,8,0.3)] flex items-center justify-center gap-2"
             >
-              <span className="material-symbols-outlined">confirmation_number</span>
-              Cumpără Bilete
+              CUMPĂRĂ BILETE
             </Link>
             <Link 
-              href="#detalii"
-              className="h-16 px-10 border border-yellow-500/30 text-yellow-100/90 font-bold text-lg rounded-xl hover:bg-yellow-500/10 hover:border-yellow-500 transition-all flex items-center justify-center"
+              href="#info"
+              className="h-14 px-12 border border-yellow-500/30 text-yellow-100 font-bold text-lg rounded-full hover:bg-yellow-500/10 hover:border-yellow-500 transition-all flex items-center justify-center"
             >
-              Mai multe detalii
+              DETALII EVENIMENT
             </Link>
           </div>
         </div>
       </section>
 
-      {/* --- INFO BAR --- */}
-      <section id="detalii" className="relative z-30 -mt-10 px-4">
-        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 bg-[#14120c] border border-yellow-900/30 rounded-2xl shadow-2xl overflow-hidden divide-y md:divide-y-0 md:divide-x divide-yellow-900/30">
-          <div className="p-8 flex items-center gap-5 group hover:bg-yellow-900/5 transition-colors">
-            <div className="size-14 bg-yellow-500/10 rounded-full flex items-center justify-center text-yellow-500 group-hover:scale-110 transition-transform">
-              <span className="material-symbols-outlined text-3xl">calendar_month</span>
+      {/* --- INFO BAR (Date din Afiș) --- */}
+      <section id="info" className="relative z-30 -mt-16 px-4">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 bg-[#12100b] border border-yellow-800/40 rounded-3xl shadow-2xl overflow-hidden">
+          {/* DATA */}
+          <div className="p-8 flex items-center gap-6 border-b md:border-b-0 md:border-r border-yellow-900/30 group hover:bg-yellow-900/5 transition-colors">
+            <div className="size-16 bg-gradient-to-br from-yellow-900/20 to-yellow-600/10 rounded-2xl flex items-center justify-center text-yellow-500 border border-yellow-500/20 group-hover:scale-110 transition-transform">
+              <span className="material-symbols-outlined text-3xl">calendar_today</span>
             </div>
             <div>
-              <p className="text-yellow-600/60 text-xs font-bold uppercase tracking-wider mb-1">Data</p>
-              <p className="text-xl font-bold text-[#faeacc]">24 Septembrie 2024</p>
-              <p className="text-yellow-500 text-sm">Ora 19:30</p>
+              <p className="text-yellow-600/60 text-xs font-bold uppercase tracking-widest mb-1">Data Concertului</p>
+              <p className="text-2xl font-black text-white">14 FEB 2026</p>
+              <p className="text-yellow-500 font-bold">Ora 20:00</p>
             </div>
           </div>
-          <div className="p-8 flex items-center gap-5 group hover:bg-yellow-900/5 transition-colors">
-            <div className="size-14 bg-yellow-500/10 rounded-full flex items-center justify-center text-yellow-500 group-hover:scale-110 transition-transform">
+
+          {/* LOCATIA */}
+          <div className="p-8 flex items-center gap-6 border-b md:border-b-0 md:border-r border-yellow-900/30 group hover:bg-yellow-900/5 transition-colors">
+            <div className="size-16 bg-gradient-to-br from-yellow-900/20 to-yellow-600/10 rounded-2xl flex items-center justify-center text-yellow-500 border border-yellow-500/20 group-hover:scale-110 transition-transform">
               <span className="material-symbols-outlined text-3xl">location_on</span>
             </div>
             <div>
-              <p className="text-yellow-600/60 text-xs font-bold uppercase tracking-wider mb-1">Locație</p>
-              <p className="text-xl font-bold text-[#faeacc]">Sala Palatului</p>
-              <p className="text-yellow-500 text-sm">București</p>
+              <p className="text-yellow-600/60 text-xs font-bold uppercase tracking-widest mb-1">Locație</p>
+              <p className="text-2xl font-black text-white">TIMIȘOARA</p>
+              <p className="text-yellow-500 font-bold">Sala Constantin Jude</p>
             </div>
           </div>
-          <div className="p-8 flex items-center gap-5 group hover:bg-yellow-900/5 transition-colors">
-            <div className="size-14 bg-yellow-500/10 rounded-full flex items-center justify-center text-yellow-500 group-hover:scale-110 transition-transform">
-              <span className="material-symbols-outlined text-3xl">verified_user</span>
+
+          {/* LEGENDAR */}
+          <div className="p-8 flex items-center gap-6 group hover:bg-yellow-900/5 transition-colors">
+            <div className="size-16 bg-gradient-to-br from-yellow-900/20 to-yellow-600/10 rounded-2xl flex items-center justify-center text-yellow-500 border border-yellow-500/20 group-hover:scale-110 transition-transform">
+              <span className="material-symbols-outlined text-3xl">star</span>
             </div>
             <div>
-              <p className="text-yellow-600/60 text-xs font-bold uppercase tracking-wider mb-1">Organizator</p>
-              <p className="text-xl font-bold text-[#faeacc]">BestEvents Ro</p>
-              <p className="text-yellow-500 text-sm">Experiență Premium</p>
+              <p className="text-yellow-600/60 text-xs font-bold uppercase tracking-widest mb-1">Eveniment</p>
+              <p className="text-2xl font-black text-white">BIJELO DUGME</p>
+              <p className="text-yellow-500 font-bold">50 Ani de Istorie</p>
             </div>
           </div>
         </div>
       </section>
 
       {/* --- CONTENT SECTION --- */}
-      <section className="py-32 px-4 max-w-7xl mx-auto grid lg:grid-cols-2 gap-20 items-center">
+      <section className="py-24 px-4 max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
         <div>
-          <h2 className="text-yellow-500 text-sm font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
-            <span className="w-8 h-[1px] bg-yellow-500"></span>
-            Detalii Organizatorice
+          <h2 className="text-yellow-500 text-xs font-bold uppercase tracking-[0.2em] mb-4 flex items-center gap-3">
+            <span className="w-10 h-[1px] bg-yellow-500"></span>
+            Reuniunea Legendelor
           </h2>
-          <h3 className="text-4xl sm:text-5xl font-black mb-8 leading-tight text-[#faeacc]">
-            Tot ce trebuie să știi pentru spectacol
+          <h3 className="text-4xl sm:text-5xl font-black mb-8 leading-tight text-white">
+            O seară istorică la <br/>
+            <span className="text-yellow-500">Timișoara</span>
           </h3>
-          <p className="text-yellow-100/60 text-lg mb-10 leading-relaxed">
-            Pregătim o seară magică unde fiecare detaliu contează. Asigură-te că ajungi la timp pentru a te bucura de întreaga experiență.
+          <p className="text-yellow-100/70 text-lg mb-8 leading-relaxed text-justify">
+            După decenii de istorie muzicală, <strong>Goran Bregović</strong> readuce pe scenă magia <strong>Bijelo Dugme</strong>. 
+            Alături de vocile inconfundabile ale lui <strong>Alen Islamović</strong> și <strong>Mladen Vojičić Tifa</strong>, 
+            veți retrăi hiturile care au definit generații întregi.
           </p>
-          <div className="space-y-6">
-            <div className="flex gap-5 p-5 bg-yellow-900/5 border border-yellow-500/10 rounded-2xl group hover:border-yellow-500/50 hover:bg-yellow-900/10 transition-all duration-300">
-              <span className="material-symbols-outlined text-yellow-500 text-3xl group-hover:scale-110 transition-transform">door_open</span>
-              <div>
-                <h4 className="font-bold text-lg mb-1 text-[#faeacc]">Acces în sală</h4>
-                <p className="text-yellow-100/50 text-sm">Accesul publicului începe la 18:30. Vă rugăm să sosiți devreme.</p>
-              </div>
+          
+          <div className="space-y-4">
+            <div className="p-4 bg-yellow-900/10 border-l-4 border-yellow-600 rounded-r-xl">
+              <h4 className="font-bold text-white mb-1">Locație: Sala Constantin Jude</h4>
+              <p className="text-sm text-yellow-200/60">Aleea F. C. Ripensia 7, Timișoara</p>
             </div>
-            <div className="flex gap-5 p-5 bg-yellow-900/5 border border-yellow-500/10 rounded-2xl group hover:border-yellow-500/50 hover:bg-yellow-900/10 transition-all duration-300">
-              <span className="material-symbols-outlined text-yellow-500 text-3xl group-hover:scale-110 transition-transform">timelapse</span>
-              <div>
-                <h4 className="font-bold text-lg mb-1 text-[#faeacc]">Durată Show</h4>
-                <p className="text-yellow-100/50 text-sm">Aproximativ 2.5 ore de spectacol incendiar fără pauză.</p>
-              </div>
+            <div className="p-4 bg-yellow-900/10 border-l-4 border-yellow-600 rounded-r-xl">
+              <h4 className="font-bold text-white mb-1">Acces Public</h4>
+              <p className="text-sm text-yellow-200/60">Accesul în sală se face începând cu ora 18:30.</p>
             </div>
           </div>
         </div>
         
-        <div className="relative rounded-3xl overflow-hidden shadow-2xl group border border-yellow-900/30">
-          <div className="absolute inset-0 bg-yellow-500/10 z-10 mix-blend-overlay pointer-events-none"></div>
+        {/* Imagine Sala/Artist */}
+        <div className="relative rounded-3xl overflow-hidden shadow-2xl group border border-yellow-900/30 aspect-[4/3]">
+          <div className="absolute inset-0 bg-yellow-600/20 z-10 mix-blend-overlay pointer-events-none"></div>
+          {/* Imagine nouă pentru conținut, reprezentând un concert live */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img 
-            src="https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?auto=format&fit=crop&q=80&w=2070" 
-            className="w-full aspect-square object-cover transition-transform duration-700 group-hover:scale-105 sepia-[0.2]"
-            alt="Venue"
+            src="https://images.unsplash.com/photo-1459749411175-04bf5292ceea?q=80&w=2670&auto=format&fit=crop&q=80&w=2070" 
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 grayscale contrast-125"
+            alt="Live Concert Atmosphere"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent z-10"></div>
-          <div className="absolute bottom-8 left-8 z-20">
-            <p className="text-yellow-500 font-bold mb-1 flex items-center gap-2">
-              <span className="material-symbols-outlined text-base">map</span> Sala Palatului
-            </p>
-            <h4 className="text-2xl font-bold text-[#faeacc]">Strada Ion Câmpineanu 28</h4>
+          {/* Gradient peste imagine */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0a0905] via-transparent to-transparent z-20"></div>
+          
+          <div className="absolute bottom-6 left-6 z-30">
+            <div className="bg-yellow-500 text-black font-bold text-xs px-3 py-1 rounded mb-2 inline-block">
+              SOLD OUT POTENTIAL
+            </div>
+            <p className="text-white font-bold text-xl">Nu ratați evenimentul anului 2026!</p>
           </div>
         </div>
       </section>
 
-      {/* --- TICKETS SECTION (INTEGRAT CU DB) --- */}
-      <section className="bg-[#0f0c05] py-32 px-4 border-t border-yellow-900/20 relative">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[500px] bg-yellow-600/5 rounded-full blur-[100px] pointer-events-none"></div>
+      {/* --- TICKETS SECTION --- */}
+      <section className="bg-[#0f0c05] py-24 px-4 border-t border-yellow-900/20 relative">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-yellow-600/5 rounded-full blur-[120px] pointer-events-none"></div>
 
         <div className="max-w-7xl mx-auto relative z-10">
-          <div className="text-center mb-20">
-            <h2 className="text-yellow-600 font-bold tracking-[0.2em] uppercase mb-4 text-sm">Rezervă-ți locul</h2>
-            <h3 className="text-5xl font-black text-[#faeacc]">Categorii de Bilete</h3>
+          <div className="text-center mb-16">
+            <h2 className="text-yellow-600 font-bold tracking-[0.3em] uppercase mb-4 text-xs">Bilete Disponibile</h2>
+            <h3 className="text-4xl md:text-5xl font-black text-white">Alege Locul Tău</h3>
           </div>
 
-          {/* Stare de Încărcare */}
           {loading ? (
             <div className="flex justify-center items-center h-64 text-yellow-500">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500"></div>
             </div>
           ) : (
-            <div className="grid md:grid-cols-3 gap-8">
+            // Centrarea celor două tipuri de bilete
+            <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
               {tickets.map((ticket) => {
-                // Calcule dinamice bazate pe datele din DB
                 const remaining = ticket.totalQuantity - ticket.soldQuantity;
                 const isLowStock = remaining > 0 && remaining <= 50;
                 const isSoldOut = remaining <= 0;
+                // Stilizare specială pentru biletul GOLD
                 const isGold = ticket.code === 'gold';
 
                 return (
                   <div 
                     key={ticket.id}
-                    className={`p-10 rounded-3xl border-2 transition-all hover:scale-[1.02] flex flex-col relative overflow-hidden ${
+                    className={`p-8 rounded-3xl border transition-all hover:-translate-y-2 duration-300 flex flex-col relative overflow-hidden group ${
                       isGold
-                      ? 'border-yellow-500 bg-yellow-900/10 shadow-[0_0_30px_-5px_rgba(234,179,8,0.15)]' 
-                      : 'border-yellow-900/20 bg-[#16130a] hover:border-yellow-700/50'
+                      ? 'border-yellow-500/50 bg-gradient-to-b from-yellow-900/20 to-[#1a150b] shadow-[0_0_40px_-10px_rgba(234,179,8,0.2)]' 
+                      : 'border-white/10 bg-[#16130a] hover:border-yellow-500/30'
                     }`}
                   >
-                    {/* Background pattern */}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/5 rounded-full blur-2xl -mr-16 -mt-16 pointer-events-none"></div>
-
-                    <div className="flex justify-between items-start mb-6 relative z-10">
-                      <h4 className={`text-2xl font-black uppercase tracking-tight ${isGold ? 'text-yellow-400' : 'text-[#faeacc]'}`}>
-                        {ticket.name}
-                      </h4>
-                      {ticket.badge && (
-                        <span className="bg-yellow-500 text-black text-[10px] font-black uppercase px-2 py-1 rounded shadow-lg shadow-yellow-500/20">
+                    {/* Badge */}
+                    {ticket.badge && (
+                      <div className="absolute top-4 right-4">
+                        <span className="bg-yellow-500 text-black text-[10px] font-black uppercase px-3 py-1 rounded-full shadow-lg shadow-yellow-500/20">
                           {ticket.badge}
                         </span>
-                      )}
+                      </div>
+                    )}
+
+                    <div className="mb-6 relative z-10">
+                      <h4 className={`text-xl font-black uppercase tracking-tight mb-2 ${isGold ? 'text-yellow-400' : 'text-white'}`}>
+                        {ticket.name}
+                      </h4>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl font-black text-white">{ticket.price}</span>
+                        <span className="text-yellow-600 font-bold text-sm">RON</span>
+                      </div>
                     </div>
                     
-                    <div className="mb-6 flex items-baseline gap-2 relative z-10">
-                      <span className="text-5xl font-black text-yellow-500">{ticket.price}</span>
-                      <span className="text-yellow-700 font-bold">RON</span>
-                    </div>
-                    
-                    <div className="mb-10 relative z-10">
-                      <div className={`text-sm font-bold flex items-center gap-2 ${isLowStock ? 'text-red-400' : 'text-yellow-600/70'}`}>
-                        <span className="material-symbols-outlined text-lg">
-                          {isSoldOut ? 'block' : 'event_seat'}
-                        </span>
-                        {isSoldOut ? (
-                          <>Stoc epuizat</>
-                        ) : (
-                          <>{remaining} bilete rămase</>
-                        )}
+                    <div className="mb-8 relative z-10">
+                      <div className={`text-xs font-bold uppercase tracking-wide flex items-center gap-2 ${isLowStock ? 'text-red-500' : 'text-green-500'}`}>
+                        <div className={`w-2 h-2 rounded-full ${isSoldOut ? 'bg-gray-500' : (isLowStock ? 'bg-red-500 animate-pulse' : 'bg-green-500')}`}></div>
+                        {isSoldOut ? 'Sold Out' : (isLowStock ? `Doar ${remaining} rămase!` : 'Disponibil')}
                       </div>
                     </div>
 
-                    <ul className="space-y-4 mb-12 flex-1 relative z-10">
+                    <ul className="space-y-4 mb-10 flex-1 relative z-10 border-t border-white/5 pt-6">
                       {ticket.features && ticket.features.map((f, i) => (
-                        <li key={i} className="flex items-start gap-3 text-yellow-100/70 text-sm">
-                          <span className="material-symbols-outlined text-yellow-500 text-lg">
-                            {isGold ? 'diamond' : 'check_circle'}
-                          </span>
+                        <li key={i} className="flex items-start gap-3 text-gray-400 text-sm group-hover:text-gray-300 transition-colors">
+                          <span className="material-symbols-outlined text-yellow-600 text-lg">check</span>
                           {f}
                         </li>
                       ))}
@@ -280,20 +283,17 @@ export default function HomePage() {
                     {!isSoldOut ? (
                       <Link 
                         href="/booking"
-                        className={`block text-center w-full py-4 rounded-xl font-bold transition-all relative z-10 ${
+                        className={`w-full py-4 rounded-xl font-bold text-center transition-all relative z-10 flex items-center justify-center gap-2 ${
                           isGold 
-                            ? 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-black hover:to-white shadow-lg shadow-yellow-500/20' 
-                            : 'border border-yellow-600/50 text-yellow-500 hover:bg-yellow-500 hover:text-black'
+                            ? 'bg-yellow-500 text-black hover:bg-yellow-400 shadow-lg shadow-yellow-500/10' 
+                            : 'bg-white/10 text-white hover:bg-white/20'
                         }`}
                       >
-                        Cumpără Acum
+                        Cumpără Bilet
                       </Link>
                     ) : (
-                      <button 
-                        disabled
-                        className="w-full py-4 rounded-xl font-bold bg-gray-900/50 border border-gray-800 text-gray-600 cursor-not-allowed relative z-10"
-                      >
-                        Sold Out
+                      <button disabled className="w-full py-4 rounded-xl font-bold bg-white/5 text-gray-500 cursor-not-allowed border border-white/5">
+                        Indisponibil
                       </button>
                     )}
                   </div>

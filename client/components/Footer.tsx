@@ -14,13 +14,18 @@ const Footer: React.FC = () => (
               music_note
             </span>
           </span>
-          <h3 className="text-2xl font-black text-[#faeacc] tracking-tight">
-            GORAN BREGOVIĆ
-          </h3>
+          <div>
+            <h3 className="text-xl font-black text-[#faeacc] tracking-tight leading-none">
+              GORAN BREGOVIĆ
+            </h3>
+            <p className="text-[10px] text-yellow-500 font-bold uppercase tracking-widest">
+              & Bijelo Dugme
+            </p>
+          </div>
         </div>
         <p className="text-yellow-100/40 max-w-sm leading-relaxed mb-8 text-sm">
-          Eveniment organizat cu pasiune pentru muzica autentică. Nu rata ocazia
-          de a fi parte din istorie într-o locație de excepție.
+          Un eveniment jubiliar "50 de ani", organizat cu pasiune de 
+          <strong className="text-yellow-500/80"> Asociația Centrul Cultural Sârbesc Constantin</strong>.
         </p>
         <div className="flex gap-4">
           {["facebook", "instagram", "youtube"].map((social) => (
@@ -88,7 +93,7 @@ const Footer: React.FC = () => (
               mail
             </span>
             <span className="group-hover:text-[#faeacc] transition-colors">
-              contact@bestevents.ro
+              contact@ccsc.ro
             </span>
           </li>
           <li className="flex items-start gap-3 group">
@@ -104,9 +109,9 @@ const Footer: React.FC = () => (
               location_on
             </span>
             <span className="group-hover:text-[#faeacc] transition-colors">
-              Sala Palatului
+              Sala Constantin Jude
               <br />
-              București, România
+              Timișoara, România
             </span>
           </li>
         </ul>
@@ -115,7 +120,7 @@ const Footer: React.FC = () => (
 
     {/* Bottom Bar */}
     <div className="max-w-7xl mx-auto px-6 pt-8 border-t border-yellow-900/20 flex flex-col md:flex-row justify-between items-center gap-4 text-yellow-900 text-[10px] font-bold uppercase tracking-widest relative z-10">
-      <p>© 2024 BestEvents Ro. Toate drepturile rezervate.</p>
+      <p>© 2026 Asociația Centrul Cultural Sârbesc Constantin.</p>
       <div className="flex items-center gap-2">
         <span className="size-2 bg-green-500 rounded-full animate-pulse"></span>
         <p>Secured by Stripe</p>
