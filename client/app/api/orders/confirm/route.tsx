@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { transporter, mailOptions } from "@/lib/nodemailer"; // Asigurat import corect
+import { transporter, mailOptions } from "@/lib/nodemailer";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { TicketDocument } from "@/components/TicketPDF";
 import React from "react";
 import QRCode from "qrcode";
 
-// --- CONFIGURAȚII VERCEL (CRITICE) ---
-// Încearcă să extindă timpul de execuție la 60 secunde (doar Pro) sau max posibil pe Hobby
-export const maxDuration = 60;
-export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Încercăm să creștem limita
+export const dynamic = 'force-dynamic';
 
-// Interfață date
 interface TicketData {
   unique_qr_id: string;
   ticket_display: string;
@@ -22,7 +19,6 @@ interface TicketData {
 }
 
 export async function POST(request: Request) {
-  console.time("TotalExecution"); // Start cronometru general
   const client = await pool.connect();
   let orderDetailsForEmail = null;
   let qrCodesMap: Record<string, string> = {};
@@ -31,226 +27,138 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { orderId } = body;
 
-    if (!orderId) {
-      return NextResponse.json(
-        { success: false, error: "Lipseste Order ID" },
-        { status: 400 }
-      );
-    }
+    if (!orderId) return NextResponse.json({ success: false }, { status: 400 });
 
-    // =================================================
-    // FAZA 1: DATABASE TRANSACTION
-    // =================================================
-    console.time("DatabaseTransaction");
+    // --- FAZA 1: DB ---
     await client.query("BEGIN");
-
-    const checkRes = await client.query(
-      "SELECT * FROM orders WHERE id = $1 FOR UPDATE",
-      [orderId]
-    );
-
-    if (checkRes.rows.length === 0) {
+    
+    // Verificari DB (simplificate pentru claritate)
+    const checkRes = await client.query("SELECT * FROM orders WHERE id = $1 FOR UPDATE", [orderId]);
+    if (checkRes.rows.length === 0 || checkRes.rows[0].status === 'paid') {
       await client.query("ROLLBACK");
-      return NextResponse.json(
-        { success: false, error: "Comanda nu există" },
-        { status: 404 }
-      );
-    }
-
-    if (checkRes.rows[0].status === "paid") {
-      await client.query("ROLLBACK");
-      return NextResponse.json({ success: true, message: "Deja plătită." });
+      return NextResponse.json({ success: true, message: "Skipped" });
     }
 
     const customerEmail = checkRes.rows[0].customeremail;
     const customerName = checkRes.rows[0].customername || "Client";
 
-    // Update Status
-    await client.query("UPDATE orders SET status = 'paid' WHERE id = $1", [
-      orderId,
-    ]);
-
-    // Get Items
+    // Update DB
+    await client.query("UPDATE orders SET status = 'paid' WHERE id = $1", [orderId]);
+    
+    // Preluare bilete
     const itemsRes = await client.query(
       `SELECT oi.id, oi.ticketcategoryid, oi.quantity, tc.series_prefix 
-       FROM order_items oi
-       JOIN ticket_categories tc ON oi.ticketcategoryid = tc.id
-       WHERE oi.orderid = $1`,
-      [orderId]
+       FROM order_items oi JOIN ticket_categories tc ON oi.ticketcategoryid = tc.id WHERE oi.orderid = $1`, [orderId]
     );
 
-    // Generate Tickets & Update Stock
+    // Generare Bilete
     for (const item of itemsRes.rows) {
-      const catRes = await client.query(
-        `SELECT "soldQuantity" FROM ticket_categories WHERE id = $1 FOR UPDATE`,
-        [item.ticketcategoryid]
-      );
+      const catRes = await client.query(`SELECT "soldQuantity" FROM ticket_categories WHERE id = $1 FOR UPDATE`, [item.ticketcategoryid]);
       let currentSold = Number(catRes.rows[0].soldQuantity);
 
       for (let i = 0; i < item.quantity; i++) {
         currentSold++;
-        const uniqueQR = `${orderId.slice(0, 4)}-${item.ticketcategoryid.slice(
-          0,
-          4
-        )}-${Date.now().toString(36)}-${Math.random()
-          .toString(36)
-          .substr(2, 5)}`;
+        const uniqueQR = `${orderId.slice(0,4)}-${Date.now()}-${i}`;
         const displayID = `${item.series_prefix || "GEN"} ${currentSold}`;
-
+        
         await client.query(
           `INSERT INTO tickets (order_id, category_id, series_prefix, ticket_number, ticket_display, unique_qr_code, status)
            VALUES ($1, $2, $3, $4, $5, $6, 'valid')`,
-          [
-            orderId,
-            item.ticketcategoryid,
-            item.series_prefix || "GEN",
-            currentSold,
-            displayID,
-            uniqueQR,
-          ]
+          [orderId, item.ticketcategoryid, item.series_prefix || "GEN", currentSold, displayID, uniqueQR]
         );
       }
-      await client.query(
-        `UPDATE ticket_categories SET "soldQuantity" = $1 WHERE id = $2`,
-        [currentSold, item.ticketcategoryid]
-      );
+      await client.query(`UPDATE ticket_categories SET "soldQuantity" = $1 WHERE id = $2`, [currentSold, item.ticketcategoryid]);
     }
 
     await client.query("COMMIT");
-    console.timeEnd("DatabaseTransaction"); // Stop cronometru DB
 
-    // =================================================
-    // FAZA 2: PREGĂTIRE DATE (QR Codes)
-    // =================================================
-    console.time("QRGeneration");
-
-    // Recitim datele curate
-    const ticketsForPdf = await client.query(
+    // --- FAZA 2: PREGATIRE PDF ---
+    // Luam datele curate
+    const ticketsRes = await client.query(
       `SELECT t.unique_qr_code as unique_qr_id, t.ticket_display, tc.name as category_name, tc.price as priceperunit
-       FROM tickets t
-       JOIN ticket_categories tc ON t.category_id = tc.id
-       WHERE t.order_id = $1 ORDER BY t.ticket_number ASC`,
-      [orderId]
+       FROM tickets t JOIN ticket_categories tc ON t.category_id = tc.id WHERE t.order_id = $1`, [orderId]
     );
-    const tickets: TicketData[] = ticketsForPdf.rows;
+    const tickets: TicketData[] = ticketsRes.rows;
 
-    // Generare QR Paralelă
-    const qrResults = await Promise.all(
-      tickets.map(async (ticket) => {
-        try {
-          const url = await QRCode.toDataURL(ticket.unique_qr_id, {
-            errorCorrectionLevel: "M",
-            margin: 1,
-            width: 150,
-          });
-          return { id: ticket.unique_qr_id, url };
-        } catch (e) {
-          return null;
-        }
-      })
-    );
-
-    qrResults.forEach((res) => {
-      if (res) qrCodesMap[res.id] = res.url;
-    });
+    // Generare QR (Rapid)
+    const qrResults = await Promise.all(tickets.map(async (t) => {
+        try { return { id: t.unique_qr_id, url: await QRCode.toDataURL(t.unique_qr_id) }; } 
+        catch { return null; }
+    }));
+    qrResults.forEach(r => { if(r) qrCodesMap[r.id] = r.url });
 
     orderDetailsForEmail = {
       id: orderId,
       customername: customerName,
-      created_at: checkRes.rows[0].created_at,
+      created_at: new Date(),
       items: tickets,
     };
-    console.timeEnd("QRGeneration");
 
-    // =================================================
-    // FAZA 3: PDF & EMAIL
-    // =================================================
-
-    // --- BLOC DE SIGURANȚĂ PENTRU PDF ---
-    // Încercăm să generăm PDF. Dacă durează prea mult sau crapă,
-    // trimitem mail fără PDF ca să nu pierdem confirmarea clientului.
+    // --- FAZA 3: PDF CU TIMEOUT (SOLUȚIA MAGICĂ) ---
     let pdfBuffer: Buffer | null = null;
 
     try {
-      console.log("Începe generarea PDF...");
-      console.time("PDFRender");
-      pdfBuffer = await renderToBuffer(
-        <TicketDocument
-          orderDetails={orderDetailsForEmail}
-          qrCodes={qrCodesMap}
-        />
+      console.log("⏳ Începe generarea PDF (max 4s)...");
+      
+      // Definim un Timeout Promise care dă reject după 4 secunde
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout PDF")), 4000)
       );
-      console.timeEnd("PDFRender");
-      console.log("PDF generat cu succes. Mărime:", pdfBuffer.length);
-    } catch (pdfError) {
-      console.error(
-        "⚠️ EROARE GENERARE PDF (Se va trimite mail fara PDF):",
-        pdfError
+
+      // Definim PDF Promise
+      const pdfPromise = renderToBuffer(
+        <TicketDocument orderDetails={orderDetailsForEmail} qrCodes={qrCodesMap} />
       );
+
+      // Le punem la întrecere. Cine termină primul câștigă.
+      // @ts-ignore
+      pdfBuffer = await Promise.race([pdfPromise, timeoutPromise]);
+      
+      console.log("✅ PDF generat cu succes!");
+    } catch (err) {
+      console.error("⚠️ PDF a eșuat sau a expirat (Se trimite mail simplu):", err);
       pdfBuffer = null;
     }
 
-    // Pregătire atașamente (doar dacă există buffer)
-    const attachments = pdfBuffer
-      ? [
-          {
-            filename: `Bilete-Goran-${orderId.slice(0, 6)}.pdf`,
-            content: pdfBuffer,
-            contentType: "application/pdf",
-          },
-        ]
-      : [];
-
-    // Trimitere Email
+    // --- FAZA 4: EMAIL ---
     try {
-      console.log("Începe trimiterea emailului...");
-      console.time("SMTP");
+      console.log("📧 Trimitere email...");
+      
+      const attachments = pdfBuffer ? [{
+        filename: 'Bilete-Concert.pdf',
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      }] : [];
 
       await transporter.sendMail({
         ...mailOptions,
         to: customerEmail,
-        subject: `Comanda ta #${orderId.slice(
-          0,
-          8
-        )} - Goran Bregović & Bijelo Dugme`,
+        subject: `Confirmare Comandă #${orderId.slice(0,6)}`,
         html: `
-          <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-            <h2 style="color: #d97706;">Salut ${customerName},</h2>
-            <p>Plata a fost confirmată cu succes!</p>
-            ${
-              pdfBuffer
-                ? `<p><strong>✅ Biletele tale sunt atașate în format PDF.</strong></p>`
-                : `<p style="color:red;"><strong>⚠️ Notă:</strong> PDF-ul se generează. Dacă nu este atașat, te rugăm să ne contactezi sau să prezinți acest email la intrare.</p>`
-            }
-            <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin-top: 20px;">
-                <p style="margin:0;"><strong>Eveniment:</strong> Goran Bregović & Bijelo Dugme</p>
-                <p style="margin:0;"><strong>Locație:</strong> Sala Constantin Jude, Timișoara</p>
-                <p style="margin:0;"><strong>Data:</strong> 14 Februarie 2026, 20:00</p>
-                <p style="margin:0;"><strong>ID Comandă:</strong> ${orderId}</p>
-            </div>
-          </div>
+          <h3>Salut ${customerName},</h3>
+          <p>Plata a fost confirmată.</p>
+          ${pdfBuffer 
+            ? '<p>✅ Biletele sunt atașate.</p>' 
+            : '<p style="color:red">⚠️ Eroare generare PDF. Te rugăm să prezinți acest email la intrare.</p>'
+          }
+          <p><strong>Bilete:</strong></p>
+          <ul>
+            ${tickets.map(t => `<li>${t.category_name} - Loc: ${t.ticket_display}</li>`).join('')}
+          </ul>
         `,
-        attachments: attachments,
+        attachments: attachments
       });
-      console.timeEnd("SMTP");
-      console.log(`📧 Email trimis cu succes la ${customerEmail}`);
-    } catch (emailError) {
-      console.error("❌ EROARE SMTP:", emailError);
-      // Nu dăm throw error aici, pentru că plata e deja înregistrată în DB
+      console.log("✅ Email trimis!");
+    } catch (e) {
+      console.error("❌ Eroare SMTP:", e);
     }
 
-    console.timeEnd("TotalExecution");
     return NextResponse.json({ success: true });
+
   } catch (error: any) {
-    // Rollback doar dacă nu am apucat să dăm COMMIT
-    try {
-      await client.query("ROLLBACK");
-    } catch (e) {}
-    console.error("CRITICAL ERROR:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+    try { await client.query("ROLLBACK"); } catch {}
+    console.error("Server Error:", error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   } finally {
     client.release();
   }
