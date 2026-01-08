@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { transporter, mailOptions } from "@/lib/nodemailer";
-import QRCode from "qrcode";
+import QRCode from "qrcode"; 
 
-// NU mai importăm react-pdf, el este cauza blocajului!
+// ⚠️ IMPORTANT: NU mai importăm 'react-pdf' aici. 
+// Asta asigura ca functia ramane usoara si rapida.
 
-export const maxDuration = 60;
-export const dynamic = "force-dynamic";
+export const maxDuration = 60; 
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   const client = await pool.connect();
@@ -15,171 +16,180 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { orderId } = body;
 
-    if (!orderId) return NextResponse.json({ success: false }, { status: 400 });
+    if (!orderId) {
+      return NextResponse.json({ success: false, error: "Missing Order ID" }, { status: 400 });
+    }
 
-    console.log(`[START] Procesare comanda: ${orderId}`);
+    console.log(`🚀 [START] Procesare comandă: ${orderId}`);
 
     // =================================================
-    // FAZA 1: DATABASE
+    // FAZA 1: TRANZACȚIA BAZĂ DE DATE (CRITIC)
     // =================================================
     await client.query("BEGIN");
 
-    // 1. Verificare
+    // 1. Verificăm comanda și o blocăm
     const checkRes = await client.query(
-      "SELECT * FROM orders WHERE id = $1 FOR UPDATE",
+      "SELECT * FROM orders WHERE id = $1 FOR UPDATE", 
       [orderId]
     );
+
     if (checkRes.rows.length === 0) {
       await client.query("ROLLBACK");
-      return NextResponse.json(
-        { success: false, error: "Not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ success: false, error: "Comanda nu există" }, { status: 404 });
     }
-
-    // Idempotency check
-    if (checkRes.rows[0].status === "paid") {
+    
+    // Verificăm dacă e deja plătită (Idempotency)
+    if (checkRes.rows[0].status === 'paid') {
       await client.query("ROLLBACK");
-      console.log("Comanda deja platita.");
-      return NextResponse.json({ success: true });
+      console.log("⚠️ Comanda este deja marcată ca plătită.");
+      return NextResponse.json({ success: true, message: "Already paid" });
     }
 
     const customerEmail = checkRes.rows[0].customeremail;
     const customerName = checkRes.rows[0].customername || "Client";
 
-    // 2. Update Status
-    await client.query("UPDATE orders SET status = 'paid' WHERE id = $1", [
-      orderId,
-    ]);
+    // 2. Setăm statusul la PAID
+    await client.query("UPDATE orders SET status = 'paid' WHERE id = $1", [orderId]);
 
-    // 3. Generare Bilete in DB
+    // 3. Preluăm produsele pentru a genera biletele
     const itemsRes = await client.query(
       `SELECT oi.ticketcategoryid, oi.quantity, tc.series_prefix, tc.name as cat_name
        FROM order_items oi 
        JOIN ticket_categories tc ON oi.ticketcategoryid = tc.id 
-       WHERE oi.orderid = $1`,
-      [orderId]
+       WHERE oi.orderid = $1`, [orderId]
     );
 
-    const ticketsData = [];
+    // Vom stoca aici datele biletelor pentru a le pune în email mai târziu
+    const generatedTickets = [];
 
+    // 4. Generăm biletele efectiv
     for (const item of itemsRes.rows) {
+      // Blocăm categoria pentru inventar corect
       const catRes = await client.query(
-        `SELECT "soldQuantity" FROM ticket_categories WHERE id = $1 FOR UPDATE`,
+        `SELECT "soldQuantity" FROM ticket_categories WHERE id = $1 FOR UPDATE`, 
         [item.ticketcategoryid]
       );
       let currentSold = Number(catRes.rows[0].soldQuantity);
 
       for (let i = 0; i < item.quantity; i++) {
         currentSold++;
-        const uniqueQR = `${orderId.slice(0, 4)}-${Date.now().toString(
-          36
-        )}-${Math.random().toString(36).substr(2, 4)}`;
+        // Generăm un cod unic sigur
+        const uniqueQR = `${orderId.slice(0,4)}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2,5)}`.toUpperCase();
         const displayID = `${item.series_prefix || "GEN"} ${currentSold}`;
-
+        
+        // Inserăm biletul
         await client.query(
           `INSERT INTO tickets (order_id, category_id, series_prefix, ticket_number, ticket_display, unique_qr_code, status)
            VALUES ($1, $2, $3, $4, $5, $6, 'valid')`,
-          [
-            orderId,
-            item.ticketcategoryid,
-            item.series_prefix || "GEN",
-            currentSold,
-            displayID,
-            uniqueQR,
-          ]
+          [orderId, item.ticketcategoryid, item.series_prefix || "GEN", currentSold, displayID, uniqueQR]
         );
 
-        // Salvăm datele pentru email
-        ticketsData.push({
+        // Adăugăm în lista pentru email
+        generatedTickets.push({
           unique_qr: uniqueQR,
           display: displayID,
-          category: item.cat_name,
+          category: item.cat_name
         });
       }
-      await client.query(
-        `UPDATE ticket_categories SET "soldQuantity" = $1 WHERE id = $2`,
-        [currentSold, item.ticketcategoryid]
-      );
+      
+      // Actualizăm stocul
+      await client.query(`UPDATE ticket_categories SET "soldQuantity" = $1 WHERE id = $2`, [currentSold, item.ticketcategoryid]);
     }
 
+    // SALVĂM TOTUL ÎN BAZA DE DATE
     await client.query("COMMIT");
-    console.log("[DB] Tranzactie finalizata cu succes.");
+    console.log("✅ [DB] Tranzacție finalizată cu succes.");
 
     // =================================================
-    // FAZA 2: PREGĂTIRE EMAIL (FĂRĂ PDF)
+    // FAZA 2: GENERARE HTML PENTRU EMAIL
     // =================================================
-
-    // Generăm un singur QR code (pentru primul bilet) sau câte unul pentru fiecare,
-    // dar pentru simplitate și viteză, le punem ca imagini CID (embedded) sau base64 în HTML.
-
-    // Construim HTML-ul pentru bilete
-    let ticketsHtml = "";
-
-    for (const ticket of ticketsData) {
-      // Generăm QR rapid
-      const qrDataURL = await QRCode.toDataURL(ticket.unique_qr, {
-        width: 200,
+    
+    let ticketsHtmlBlocks = '';
+    
+    // Generăm HTML pentru fiecare bilet
+    for (const ticket of generatedTickets) {
+      // Generăm QR Code ca imagine Base64 (foarte rapid)
+      const qrDataURL = await QRCode.toDataURL(ticket.unique_qr, { 
+        width: 200, 
         margin: 1,
+        errorCorrectionLevel: 'M'
       });
-
-      ticketsHtml += `
-        <div style="border: 2px dashed #d97706; padding: 20px; margin-bottom: 20px; border-radius: 10px; background: #fff;">
-          <h3 style="margin: 0 0 10px 0; color: #333;">${ticket.category}</h3>
-          <p style="margin: 0; font-size: 14px; color: #666;">Loc: <strong>${ticket.display}</strong></p>
-          <div style="margin-top: 15px; text-align: center;">
-            <img src="${qrDataURL}" alt="QR Code" style="width: 150px; height: 150px;" />
-            <p style="font-size: 10px; color: #999;">${ticket.unique_qr}</p>
+      
+      ticketsHtmlBlocks += `
+        <div style="border: 2px dashed #d97706; padding: 20px; margin-bottom: 20px; border-radius: 10px; background-color: #ffffff;">
+          <div style="margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+            <h3 style="margin: 0; color: #333; font-size: 18px;">${ticket.category}</h3>
+            <p style="margin: 5px 0 0 0; color: #666;">Loc / Serie: <strong>${ticket.display}</strong></p>
+          </div>
+          <div style="text-align: center;">
+            <img src="${qrDataURL}" alt="QR Code" style="width: 150px; height: 150px; display: inline-block;" />
+            <p style="font-family: monospace; font-size: 12px; color: #999; margin: 5px 0 0 0;">${ticket.unique_qr}</p>
           </div>
         </div>
       `;
     }
 
     // =================================================
-    // FAZA 3: TRIMITERE
+    // FAZA 3: TRIMITERE EMAIL
     // =================================================
-    console.log(`[EMAIL] Se trimite mail catre ${customerEmail}...`);
-
+    console.log(`📧 [EMAIL] Trimitere către ${customerEmail}...`);
+    
     await transporter.sendMail({
       ...mailOptions,
       to: customerEmail,
-      subject: `Comanda Confirmată #${orderId.slice(0, 6)} - Biletele Tale`,
+      subject: `Biletele Tale - Comanda #${orderId.slice(0,8)}`,
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9fafb; padding: 20px;">
-          <div style="background-color: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-            <h2 style="color: #d97706; text-align: center; margin-top: 0;">Plată Confirmată!</h2>
-            <p style="text-align: center; color: #4b5563;">Salut ${customerName}, îți mulțumim pentru comandă.</p>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+        </head>
+        <body style="font-family: Arial, sans-serif; background-color: #f3f4f6; padding: 20px; margin: 0;">
+          <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
             
-            <div style="margin: 30px 0;">
-              ${ticketsHtml}
+            <div style="background-color: #111827; padding: 20px; text-align: center;">
+              <h1 style="color: #f59e0b; margin: 0; font-size: 24px;">Confirmare Comandă</h1>
             </div>
 
-            <div style="background-color: #eee; padding: 15px; border-radius: 8px; font-size: 14px;">
-              <p style="margin: 5px 0;"><strong>Eveniment:</strong> Goran Bregović & Bijelo Dugme</p>
-              <p style="margin: 5px 0;"><strong>Data:</strong> 14 Februarie 2026, 20:00</p>
-              <p style="margin: 5px 0;"><strong>Locație:</strong> Sala Constantin Jude, Timișoara</p>
+            <div style="padding: 30px;">
+              <p style="font-size: 16px; color: #374151;">Salut <strong>${customerName}</strong>,</p>
+              <p style="color: #4b5563;">Plata a fost confirmată cu succes! Mai jos găsești biletele tale electronice.</p>
+              
+              <div style="background-color: #eff6ff; border-left: 4px solid #2563eb; padding: 15px; margin: 20px 0;">
+                <p style="margin: 0; font-weight: bold; color: #1e40af;">Goran Bregović & Bijelo Dugme</p>
+                <p style="margin: 5px 0 0 0; font-size: 14px; color: #1e3a8a;">📅 14 Februarie 2026, 20:00</p>
+                <p style="margin: 5px 0 0 0; font-size: 14px; color: #1e3a8a;">📍 Sala Constantin Jude, Timișoara</p>
+              </div>
+
+              <p style="text-align: center; font-weight: bold; margin-bottom: 20px;">Biletele tale:</p>
+              
+              ${ticketsHtmlBlocks}
+
+              <p style="font-size: 14px; color: #6b7280; text-align: center; margin-top: 30px;">
+                Te rugăm să prezinți codurile QR de mai sus la intrare (direct de pe telefon).
+              </p>
             </div>
-            
-            <p style="text-align: center; font-size: 12px; color: #999; margin-top: 30px;">
-              Prezintă codurile QR de mai sus la intrare.
-            </p>
+
+            <div style="background-color: #f9fafb; padding: 15px; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb;">
+              <p style="margin: 0;">ID Comandă: ${orderId}</p>
+              <p style="margin: 5px 0 0 0;">Acesta este un mesaj automat.</p>
+            </div>
           </div>
-        </div>
+        </body>
+        </html>
       `,
     });
 
-    console.log("[SUCCESS] Email trimis.");
+    console.log("✅ [SUCCESS] Email trimis și comandă procesată.");
     return NextResponse.json({ success: true });
+
   } catch (error: any) {
-    try {
-      await client.query("ROLLBACK");
-    } catch {}
-    console.error("[CRITICAL ERROR]", error);
-    // Chiar dacă e eroare, returnam 500 ca sa vedem in logs
-    return NextResponse.json(
-      { success: false, error: String(error) },
-      { status: 500 }
-    );
+    // Rollback doar dacă eroarea a apărut înainte de COMMIT
+    try { await client.query("ROLLBACK"); } catch (e) {}
+    
+    console.error("❌ [CRITICAL ERROR]", error);
+    // Returnăm eroare 500 ca să vedem în loguri, dar nu lăsăm clientul să creadă că a plătit degeaba
+    return NextResponse.json({ success: false, error: error.message || "Server Error" }, { status: 500 });
   } finally {
     client.release();
   }
