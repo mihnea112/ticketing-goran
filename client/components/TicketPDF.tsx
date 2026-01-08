@@ -8,6 +8,18 @@ import {
   Image,
 } from "@react-pdf/renderer";
 
+// --- FUNCTIE PENTRU SCOATEREA DIACRITICELOR ---
+// React-PDF cu fontul standard Helvetica CRAPA la caractere precum Ș, Ț, Ă, ć, č
+// Aceasta functie le inlocuieste cu S, T, A, c, c
+const cleanText = (text: string) => {
+  if (!text) return "";
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Scoate accentele
+    .replace(/Ș/g, "S").replace(/ș/g, "s")
+    .replace(/Ț/g, "T").replace(/ț/g, "t");
+};
+
 // Stiluri
 const styles = StyleSheet.create({
   page: {
@@ -170,17 +182,19 @@ export const TicketDocument = ({
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.title}>Goran Bregovic</Text>
+          <Text style={styles.title}>{cleanText("Goran Bregović")}</Text>
           <Text style={styles.subtitle}>& Bijelo Dugme</Text>
-          <Text style={styles.tourText}>Turneu Aniversar "50 Ani - Dozivjeti Stotu"</Text>
+          <Text style={styles.tourText}>{cleanText('Turneu Aniversar "50 Ani - Doživjeti Stotu"')}</Text>
         </View>
         <View style={styles.metaContainer}>
           <Text style={styles.meta}>
-            ID Comanda: #{orderDetails.id?.slice(0, 8).toUpperCase()}
+            ID: #{orderDetails.id ? orderDetails.id.slice(0, 8).toUpperCase() : "---"}
           </Text>
-          <Text style={styles.meta}>Client: {orderDetails.customername}</Text>
           <Text style={styles.meta}>
-            Data Achizitiei:{" "}
+            Client: {cleanText(orderDetails.customername || "Guest")}
+          </Text>
+          <Text style={styles.meta}>
+            Data:{" "}
             {orderDetails.created_at
               ? new Date(orderDetails.created_at).toLocaleDateString("ro-RO")
               : new Date().toLocaleDateString("ro-RO")}
@@ -189,56 +203,63 @@ export const TicketDocument = ({
       </View>
 
       {/* Lista Bilete */}
-      {orderDetails.items?.map((item: any, idx: number) => (
-        <View key={idx} style={styles.ticketContainer}>
-          <View style={styles.leftDecor} />
+      {/* Folosim items sau tickets, depinde ce vine din API */}
+      {(orderDetails.items || orderDetails.tickets || []).map((item: any, idx: number) => {
+        // Robustness: verificam ambele variante de nume de coloana
+        const uniqueId = item.unique_qr_code || item.unique_qr_id;
+        const categoryName = item.category_name || item.name || "General";
+        
+        return (
+          <View key={idx} style={styles.ticketContainer} wrap={false}>
+            <View style={styles.leftDecor} />
 
-          <View style={styles.contentContainer}>
-            {/* QR Code */}
-            <View style={styles.qrContainer}>
-              {qrCodes[item.unique_qr_id] ? (
-                <Image
-                  src={qrCodes[item.unique_qr_id]}
-                  style={styles.qrImage}
-                />
-              ) : (
-                <Text style={{ fontSize: 8 }}>Loading...</Text>
-              )}
-            </View>
+            <View style={styles.contentContainer}>
+              {/* QR Code */}
+              <View style={styles.qrContainer}>
+                {qrCodes[uniqueId] ? (
+                  <Image
+                    src={qrCodes[uniqueId]}
+                    style={styles.qrImage}
+                  />
+                ) : (
+                  <Text style={{ fontSize: 8 }}>QR Missing</Text>
+                )}
+              </View>
 
-            {/* Detalii Text */}
-            <View style={styles.infoContainer}>
-              <View>
-                {/* Asigurati-va ca numele categoriei vine fara diacritice din DB sau faceti replace aici */}
-                <Text style={styles.categoryName}>{item.category_name}</Text>
+              {/* Detalii Text */}
+              <View style={styles.infoContainer}>
+                <View>
+                  <Text style={styles.categoryName}>{cleanText(categoryName)}</Text>
 
-                <View style={styles.seriesBox}>
-                  <Text style={styles.seriesText}>
-                    {item.ticket_display || "PENDING"}
+                  <View style={styles.seriesBox}>
+                    <Text style={styles.seriesText}>
+                      {cleanText(item.ticket_display || "PENDING")}
+                    </Text>
+                  </View>
+
+                  <Text style={styles.price}>
+                     {/* Afisam pretul daca exista, altfel gol */}
+                     {item.priceperunit || item.price ? `Pret: ${item.priceperunit || item.price} RON` : ''}
                   </Text>
                 </View>
 
-                <Text style={styles.price}>
-                  Pret: {item.priceperunit} RON
-                </Text>
-              </View>
-
-              <View style={styles.footerCode}>
-                <Text style={styles.codeLabel}>Valabil pentru 1 persoana</Text>
-                <Text style={styles.codeValue}>{item.unique_qr_id}</Text>
+                <View style={styles.footerCode}>
+                  <Text style={styles.codeLabel}>Valabil pentru 1 persoana</Text>
+                  <Text style={styles.codeValue}>{uniqueId}</Text>
+                </View>
               </View>
             </View>
           </View>
-        </View>
-      ))}
+        );
+      })}
 
       {/* Footer */}
       <View style={styles.footer}>
         <Text style={styles.footerBold}>
-          14 FEBRUARIE 2026 • ORA 20:00 • SALA CONSTANTIN JUDE, TIMISOARA
+          {cleanText("14 FEBRUARIE 2026 • ORA 20:00 • SALA CONSTANTIN JUDE, TIMIȘOARA")}
         </Text>
         <Text style={{ marginTop: 4 }}>
-          Organizator: Asociatia Centrul Cultural Sarbesc Constantin
+          {cleanText("Organizator: Asociația Centrul Cultural Sârbesc Constantin")}
         </Text>
         <Text style={{ marginTop: 20, fontSize: 8, color: '#D1D5DB' }}>
           Codul QR este unic si valid pentru o singura scanare la intrare. Nu instrainati biletul.
