@@ -7,7 +7,6 @@ import Link from 'next/link';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 // --- CONFIGURARE UI (Beneficii Statice) ---
-// Noile beneficii pentru cele două tipuri de bilete
 const UI_FEATURES: Record<string, string[]> = {
   gold: ['Loc premium la concert', 'Vedere centrală excelentă', 'Acces prioritar'],
   tribune: ['Loc pe scaun în tribună', 'Vedere bună a scenei', 'Acces rapid']
@@ -68,7 +67,7 @@ export default function HomePage() {
           <div className="absolute inset-0 bg-gradient-to-t from-[#0a0905] via-[#0a0905]/70 to-black/40 z-10" />
           <div className="absolute inset-0 bg-yellow-900/20 z-0 mix-blend-overlay" />
           
-          {/* Noua imagine de fundal, cu o trupă/concert live și o atmosferă aurie */}
+          {/* Imagine de fundal */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img 
             src="https://images.unsplash.com/photo-1574169208507-84376144848b?auto=format&fit=crop&q=80&w=2079" 
@@ -82,24 +81,36 @@ export default function HomePage() {
             Turneu Aniversar • Doživjeti Stotu
           </span>
           
-          <h1 className="text-5xl sm:text-7xl lg:text-8xl font-black mb-2 tracking-tighter leading-none">
-            GORAN <span className="text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 drop-shadow-[0_0_25px_rgba(234,179,8,0.4)]">BREGOVIĆ</span>
+          {/* Titlu BIJELO DUGME Mare */}
+          <h1 className="text-5xl sm:text-7xl lg:text-9xl font-black mb-4 tracking-tighter leading-none">
+            <span className="text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 drop-shadow-[0_0_25px_rgba(234,179,8,0.4)]">
+              BIJELO DUGME
+            </span>
           </h1>
           
-          <div className="flex items-center justify-center gap-4 mb-6">
+          <div className="flex items-center justify-center gap-4 mb-8">
             <span className="h-[2px] w-12 bg-yellow-500/50"></span>
-            <h2 className="text-3xl sm:text-5xl font-serif italic text-yellow-100/90">
-              & Bijelo Dugme
+            {/* Subtitlu GORAN BREGOVIĆ */}
+            <h2 className="text-2xl sm:text-4xl font-serif italic text-yellow-100/90 tracking-wide">
+              GORAN BREGOVIĆ
             </h2>
             <span className="h-[2px] w-12 bg-yellow-500/50"></span>
           </div>
 
-          <p className="text-lg sm:text-xl text-yellow-100/70 font-light max-w-3xl mx-auto mb-6 uppercase tracking-widest">
-            Alen Islamović <span className="text-yellow-500 mx-2">•</span> Mladen Vojičić Tifa
-          </p>
+          {/* LISTA ARTIȘTI HERO */}
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm sm:text-lg text-yellow-100/70 font-light max-w-5xl mx-auto mb-8 uppercase tracking-widest">
+            <span>Alen Islamović</span>
+            <span className="text-yellow-500 hidden sm:inline">•</span>
+            <span>Mladen Vojičić Tifa</span>
+            <span className="text-yellow-500 hidden sm:inline">•</span>
+            <span>Zoran Redžić</span>
+            <span className="text-yellow-500 hidden sm:inline">•</span>
+            <span>Ogi Radivojević</span>
+            <span className="text-yellow-500 hidden sm:inline">•</span>
+            <span>Djidji Jankelić</span>
+          </div>
 
-          {/* Adăugarea numelui asociației */}
-          <p className="text-sm sm:text-base text-yellow-200/60 font-light max-w-3xl mx-auto mb-10 tracking-widest">
+          <p className="text-xs sm:text-sm text-yellow-200/60 font-light max-w-3xl mx-auto mb-10 tracking-widest">
             Organizator: ASOCIAȚIA CENTRUL CULTURAL SÂRBESC CONSTANTIN
           </p>
 
@@ -120,7 +131,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* --- INFO BAR (Date din Afiș) --- */}
+      {/* --- INFO BAR --- */}
       <section id="info" className="relative z-30 -mt-16 px-4">
         <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 bg-[#12100b] border border-yellow-800/40 rounded-3xl shadow-2xl overflow-hidden">
           {/* DATA */}
@@ -147,7 +158,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* LEGENDAR */}
+          {/* EVENIMENT */}
           <div className="p-8 flex items-center gap-6 group hover:bg-yellow-900/5 transition-colors">
             <div className="size-16 bg-gradient-to-br from-yellow-900/20 to-yellow-600/10 rounded-2xl flex items-center justify-center text-yellow-500 border border-yellow-500/20 group-hover:scale-110 transition-transform">
               <span className="material-symbols-outlined text-3xl">star</span>
@@ -173,11 +184,12 @@ export default function HomePage() {
             <span className="text-yellow-500">Timișoara</span>
           </h3>
           <p className="text-yellow-100/70 text-lg mb-8 leading-relaxed text-justify">
-            După decenii de istorie muzicală, <strong>Goran Bregović</strong> readuce pe scenă magia <strong>Bijelo Dugme</strong>. 
-            Alături de vocile inconfundabile ale lui <strong>Alen Islamović</strong> și <strong>Mladen Vojičić Tifa</strong>, 
+            După decenii de istorie muzicală, <strong>Bijelo Dugme</strong> revine pe scenă într-o formulă de excepție, condusă de legendarul <strong>Goran Bregović</strong>. 
+            Alături de vocile inconfundabile ale lui <strong>Alen Islamović</strong> și <strong>Mladen Vojičić Tifa</strong>, plus măiestria lui <strong>Zoran Redžić</strong>, <strong>Ogi Radivojević</strong> și <strong>Djidji Jankelić</strong>, 
             veți retrăi hiturile care au definit generații întregi.
           </p>
           
+          {/* Căsuțe Locație/Acces - REVENIT LA STILUL ORIGINAL (Vertical) */}
           <div className="space-y-4">
             <div className="p-4 bg-yellow-900/10 border-l-4 border-yellow-600 rounded-r-xl">
               <h4 className="font-bold text-white mb-1">Locație: Sala Constantin Jude</h4>
@@ -185,7 +197,12 @@ export default function HomePage() {
             </div>
             <div className="p-4 bg-yellow-900/10 border-l-4 border-yellow-600 rounded-r-xl">
               <h4 className="font-bold text-white mb-1">Acces Public</h4>
-              <p className="text-sm text-yellow-200/60">Accesul în sală se face începând cu ora 18:30.</p>
+              <p className="text-sm text-yellow-200/60 mb-2">Accesul în sală se face începând cu ora 18:30.</p>
+              {/* Avertisment uși închise */}
+              <p className="text-sm text-red-400 font-bold border-t border-yellow-500/20 pt-2 flex items-center gap-2">
+                <span className="material-symbols-outlined text-lg">warning</span>
+                ATENȚIE: Ușile se închid la ora 20:30!
+              </p>
             </div>
           </div>
         </div>
@@ -193,19 +210,17 @@ export default function HomePage() {
         {/* Imagine Sala/Artist */}
         <div className="relative rounded-3xl overflow-hidden shadow-2xl group border border-yellow-900/30 aspect-[4/3]">
           <div className="absolute inset-0 bg-yellow-600/20 z-10 mix-blend-overlay pointer-events-none"></div>
-          {/* Imagine nouă pentru conținut, reprezentând un concert live */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img 
             src="https://images.unsplash.com/photo-1459749411175-04bf5292ceea?q=80&w=2670&auto=format&fit=crop&q=80&w=2070" 
             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 grayscale contrast-125"
             alt="Live Concert Atmosphere"
           />
-          {/* Gradient peste imagine */}
           <div className="absolute inset-0 bg-gradient-to-t from-[#0a0905] via-transparent to-transparent z-20"></div>
           
           <div className="absolute bottom-6 left-6 z-30">
             <div className="bg-yellow-500 text-black font-bold text-xs px-3 py-1 rounded mb-2 inline-block">
-              SOLD OUT POTENTIAL
+              BILETE LIMITATE
             </div>
             <p className="text-white font-bold text-xl">Nu ratați evenimentul anului 2026!</p>
           </div>
@@ -227,20 +242,18 @@ export default function HomePage() {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500"></div>
             </div>
           ) : (
-            // Centrarea celor două tipuri de bilete
             <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
               {tickets.map((ticket) => {
                 const remaining = ticket.totalQuantity - ticket.soldQuantity;
                 const isLowStock = remaining > 0 && remaining <= 50;
                 const isSoldOut = remaining <= 0;
-                // Stilizare specială pentru biletul GOLD
-                const isGold = ticket.code === 'gold';
+                const isGold = ticket.code === 'vip';
 
                 return (
                   <div 
                     key={ticket.id}
                     className={`p-8 rounded-3xl border transition-all hover:-translate-y-2 duration-300 flex flex-col relative overflow-hidden group ${
-                      isGold
+                      isGold 
                       ? 'border-yellow-500/50 bg-gradient-to-b from-yellow-900/20 to-[#1a150b] shadow-[0_0_40px_-10px_rgba(234,179,8,0.2)]' 
                       : 'border-white/10 bg-[#16130a] hover:border-yellow-500/30'
                     }`}

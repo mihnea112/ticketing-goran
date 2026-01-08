@@ -6,7 +6,8 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area,
 } from "recharts";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+// Folosim calea relativă implicit dacă suntem în Next.js API Routes
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 // --- INTERFEȚE ---
 interface DashboardData {
@@ -14,7 +15,7 @@ interface DashboardData {
     revenue: number;
     orders: number;
     ticketsSold: number;
-    totalCapacity: number;
+    totalCapacity: number; // Vom calcula asta în frontend
   };
   chart: { day: string; sales: number }[];
   inventory: {
@@ -30,7 +31,7 @@ interface DashboardData {
     customer: string;
     quantity: number;
     date: string;
-    status: string; // 'paid', 'pending', etc.
+    status: string;
   }[];
 }
 
@@ -40,22 +41,53 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Verificăm ambele chei de auth pentru compatibilitate
-    const isAuth = localStorage.getItem("adminToken") || localStorage.getItem("admin_auth");
+    // 1. Verificare Auth
+    // Verificăm dacă există token-ul salvat la login
+    const token = localStorage.getItem("adminToken");
     
-    if (!isAuth) {
+    if (!token) {
       router.push("/admin/login");
       return;
     }
 
     const fetchData = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/admin/stats`);
-        if (!res.ok) throw new Error("Eroare server");
+        // 2. Fetch cu HEADER-ul de Auth (FIXUL PRINCIPAL)
+        const res = await fetch(`${API_URL}/api/admin/stats`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": token // <--- Aceasta linie rezolvă eroarea 401/500
+          }
+        });
+
+        if (!res.ok) {
+           if(res.status === 401) {
+             localStorage.removeItem("adminToken");
+             router.push("/admin/login");
+             return;
+           }
+           throw new Error("Eroare server");
+        }
+
         const json = await res.json();
-        setData(json);
+
+        // 3. Calculăm capacitatea totală din inventar 
+        // (API-ul returnează stats, chart, inventory, recentOrders)
+        const totalCapacity = json.inventory.reduce((acc: number, item: any) => acc + item.totalQuantity, 0);
+        
+        // Adăugăm capacitatea calculată în obiectul de date
+        const processedData = {
+            ...json,
+            stats: {
+                ...json.stats,
+                totalCapacity: totalCapacity
+            }
+        };
+
+        setData(processedData);
       } catch (err) {
-        console.error(err);
+        console.error("Eroare la încărcare dashboard:", err);
       } finally {
         setLoading(false);
       }
@@ -66,18 +98,21 @@ export default function AdminDashboard() {
 
   const handleLogout = () => {
     localStorage.removeItem("adminToken");
-    localStorage.removeItem("admin_auth");
     router.push("/admin/login");
   };
 
   if (loading || !data) {
     return (
       <div className="min-h-screen bg-[#0a0905] flex items-center justify-center text-yellow-500">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500"></div>
+        <div className="flex flex-col items-center gap-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500"></div>
+            <p className="animate-pulse text-sm font-bold tracking-widest uppercase">Se încarcă datele...</p>
+        </div>
       </div>
     );
   }
 
+  // Calcul locuri disponibile
   const availableSeats = data.stats.totalCapacity - data.stats.ticketsSold;
 
   const formatCurrency = (val: number) =>
@@ -113,8 +148,8 @@ export default function AdminDashboard() {
         {/* --- STATS CARDS --- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           <StatCard label="Venit Total" value={formatCurrency(data.stats.revenue)} icon="payments" trend="Live" isPositive={true} />
-          <StatCard label="Bilete Vândute" value={data.stats.ticketsSold.toString()} icon="confirmation_number" trend={`${Math.round((data.stats.ticketsSold / data.stats.totalCapacity) * 100)}%`} isPositive={true} subLabel="grad de ocupare" />
-          <StatCard label="Locuri Disponibile" value={availableSeats.toString()} icon="event_seat" trend={availableSeats < 100 ? "CRITIC" : "Normal"} isPositive={availableSeats > 100} />
+          <StatCard label="Bilete Vândute" value={data.stats.ticketsSold.toString()} icon="confirmation_number" trend={`${Math.round((data.stats.ticketsSold / (data.stats.totalCapacity || 1)) * 100)}%`} isPositive={true} subLabel="grad de ocupare" />
+          <StatCard label="Locuri Disponibile" value={availableSeats.toString()} icon="event_seat" trend={availableSeats < 50 ? "CRITIC" : "Normal"} isPositive={availableSeats > 50} />
           <StatCard label="Total Comenzi" value={data.stats.orders.toString()} icon="receipt_long" trend="Procesate" isPositive={null} />
         </div>
 
@@ -153,7 +188,7 @@ export default function AdminDashboard() {
                 <h3 className="text-2xl font-black text-[#faeacc]">Activitate Recentă</h3>
                 <span className="flex items-center gap-1 text-xs font-bold text-green-400 bg-green-900/20 px-3 py-1 rounded-full animate-pulse border border-green-500/20">
                     <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                    24 Ore
+                    Live
                 </span>
             </div>
             
@@ -176,15 +211,15 @@ export default function AdminDashboard() {
                     </div>
                     
                     <div className="text-right">
-                      <p className="font-black text-white text-lg leading-none mb-1">{order.quantity} <span className="text-[10px] text-yellow-500/50 font-normal">bilete</span></p>
+                      <p className="font-black text-white text-lg leading-none mb-1">{order.status === 'paid' ? 'Paid' : 'New'}</p>
                       
-                     {/* STATUS BADGE CORECTAT */}
+                     {/* STATUS BADGE */}
                       <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
                         order.status === 'paid' 
                           ? 'bg-green-500/10 text-green-400 border border-green-500/20' 
                           : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'
                       }`}>
-                        {order.status === 'paid' ? 'ACHITAT' : 'PENDING'}
+                        {order.status}
                       </span>
                     </div>
                   </div>

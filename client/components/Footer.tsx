@@ -93,7 +93,7 @@ const Footer: React.FC = () => (
               mail
             </span>
             <span className="group-hover:text-[#faeacc] transition-colors">
-              contact@ccsc.ro
+              centrulculturalsarbesc@gmail.com
             </span>
           </li>
           <li className="flex items-start gap-3 group">
@@ -101,7 +101,7 @@ const Footer: React.FC = () => (
               call
             </span>
             <span className="group-hover:text-[#faeacc] transition-colors">
-              +40 722 000 000
+              +40 749 883 866
             </span>
           </li>
           <li className="flex items-start gap-3 group">

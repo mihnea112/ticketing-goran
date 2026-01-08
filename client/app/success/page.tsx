@@ -7,7 +7,7 @@ import { QRCodeCanvas } from 'qrcode.react';
 import QRCode from 'qrcode'; 
 
 import dynamic from "next/dynamic";
-import { TicketDocument } from "./TicketPDF";
+import { TicketDocument } from "../../components/TicketPDF";
 
 // Importăm PDFDownloadLink doar pe client
 const PDFDownloadLink = dynamic(
