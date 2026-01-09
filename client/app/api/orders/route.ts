@@ -3,7 +3,22 @@ import pool from "@/lib/db";
 import { stripe } from "@/lib/stripe";
 import { mapCategory } from "@/lib/utils";
 
-const CLIENT_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+function getClientUrl() {
+  // 1) Your explicit domain (set this in Vercel Production)
+  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/+$/, "");
+
+  // 2) Vercel automatic domain (no protocol)
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`.replace(/\/+$/, "");
+
+  // 3) Local fallback
+  return "http://localhost:3000";
+}
+
+const CLIENT_URL = getClientUrl();
 
 export async function POST(request: Request) {
   const client = await pool.connect();
@@ -17,9 +32,9 @@ export async function POST(request: Request) {
     await client.query("BEGIN");
 
     let calculatedTotal = 0;
-    const lineItemsForStripe = [];
+    const lineItemsForStripe: any[] = [];
 
-    // Verificăm prețurile și stocul
+    // Verificăm prețurile
     for (const item of items) {
       const ticketRes = await client.query("SELECT * FROM ticket_categories WHERE id = $1", [item.categoryId]);
       if (ticketRes.rows.length === 0) throw new Error(`Categorie invalidă: ${item.categoryId}`);
@@ -39,10 +54,11 @@ export async function POST(request: Request) {
 
     // Creăm comanda (PENDING)
     const orderRes = await client.query(
-      `INSERT INTO orders (customername, customeremail, totalamount, status) 
+      `INSERT INTO orders (customername, customeremail, totalamount, status)
        VALUES ($1, $2, $3, 'pending') RETURNING id`,
       [`${customer.firstName} ${customer.lastName}`, customer.email, calculatedTotal]
     );
+
     const orderId = orderRes.rows[0].id;
 
     // Salvăm itemele
@@ -57,22 +73,35 @@ export async function POST(request: Request) {
 
     await client.query("COMMIT");
 
+    // Debug: vezi exact ce URL folosește în production
+    console.log("[orders] creating checkout session", {
+      CLIENT_URL,
+      APP_URL: process.env.APP_URL || null,
+      VERCEL_URL: process.env.VERCEL_URL || null,
+      VERCEL_ENV: process.env.VERCEL_ENV || null,
+    });
+
     // Stripe Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: lineItemsForStripe,
       mode: "payment",
-      success_url: `${CLIENT_URL}/success?orderId=${orderId}`,
+
+      // IMPORTANT: route name is /succes in your app
+      success_url: `${CLIENT_URL}/succes?orderId=${orderId}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${CLIENT_URL}/`,
+
       customer_email: customer.email,
-      metadata: { orderId: orderId },
+      metadata: { orderId: String(orderId) },
     });
 
     return NextResponse.json({ success: true, url: session.url });
   } catch (error: any) {
-    await client.query("ROLLBACK");
-    console.error("Order Error:", error.message);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    try {
+      await client.query("ROLLBACK");
+    } catch {}
+    console.error("Order Error:", error?.message || error);
+    return NextResponse.json({ success: false, error: error?.message || String(error) }, { status: 500 });
   } finally {
     client.release();
   }
