@@ -114,9 +114,6 @@ export async function POST(request: Request) {
 
     if (!customerEmail) {
       warning = "Missing customer email on order.";
-    } else if (alreadyPaid) {
-      // Webhook likely already sent; skip to prevent duplicates
-      warning = "Order already paid; skipped email to avoid duplicates.";
     } else {
       try {
         await sendOrderConfirmedEmail({
