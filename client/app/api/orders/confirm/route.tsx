@@ -12,11 +12,11 @@ export const dynamic = "force-dynamic";
 
 function getBaseUrl(request: Request) {
   // Prefer explicit env
-  const appUrl = process.env.APP_URL;
+  const appUrl = process.env.NEXT_PUBLIC_API_URL;
   if (appUrl) return appUrl.replace(/\/+$/, "");
 
   // Vercel automatic env
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`.replace(/\/+$/, "");
+  if (process.env.NEXT_PUBLIC_API_URL) return `https://${process.env.NEXT_PUBLIC_API_URL}`.replace(/\/+$/, "");
 
   // Fallback to request headers (works behind many proxies)
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
