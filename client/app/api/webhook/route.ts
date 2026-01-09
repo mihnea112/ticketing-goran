@@ -1,117 +1,110 @@
-import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import pool from "@/lib/db";
 import { sendOrderConfirmedEmail } from "@/lib/nodemailer";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2023-10-16" as any, // Folosește ultima versiune disponibilă
+  apiVersion: "2023-10-16" as any,
 });
+
+function getBaseUrl() {
+  // 1) Preferred: your explicit production URL
+  const appUrl = process.env.APP_URL;
+  if (appUrl) return appUrl.replace(/\/+$/, "");
+
+  // 2) Vercel deployment URL (works even without custom domain)
+  const vercelUrl = process.env.VERCEL_URL;
+  if (vercelUrl) return `https://${vercelUrl}`.replace(/\/+$/, "");
+
+  // 3) Last resort: avoid localhost in prod
+  if (process.env.NODE_ENV === "production") {
+    return "https://bilete-goran-bregovici.vercel.app";
+  }
+
+  return "http://localhost:3000";
+}
 
 export async function POST(req: Request) {
   const body = await req.text();
-  const signature = req.headers.get("Stripe-Signature") as string;
+  const signature = req.headers.get("stripe-signature") || req.headers.get("Stripe-Signature");
+
+  if (!signature) {
+    return new NextResponse("Missing stripe-signature", { status: 400 });
+  }
 
   let event: Stripe.Event;
-
-  // 1. Verificăm dacă cererea vine chiar de la Stripe (Securitate)
   try {
-    event = stripe.webhooks.constructEvent(
-      body,
-      signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    );
+    event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET!);
   } catch (error: any) {
     console.error("Webhook signature verification failed:", error.message);
     return new NextResponse(`Webhook Error: ${error.message}`, { status: 400 });
   }
 
-  // 2. Ascultăm evenimentul de plată reușită
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object as Stripe.Checkout.Session;
-
-    // Luăm ID-ul comenzii din Metadata (pe care l-am pus când am creat sesiunea de plată)
-    const orderId = session.metadata?.orderId;
-    const customerEmail = session.customer_details?.email;
-    const customerName = session.customer_details?.name || "Client";
-
-    if (!orderId) {
-      console.error("Lipsă Order ID în metadata Stripe:", session.id);
-      return new NextResponse("Order ID missing", { status: 400 });
-    }
-
-    console.log(`✅ Plată confirmată pentru comanda: ${orderId}`);
-
-    try {
-      const client = await pool.connect();
-
-      // 3. Actualizăm Baza de Date: Status -> 'paid'
-      // Salvăm și Payment Intent ID ca referință
-      const updateQuery = `
-        UPDATE orders 
-        SET status = 'paid', 
-            payment_intent_id = $1,
-            updated_at = NOW()
-        WHERE id = $2
-        RETURNING *;
-      `;
-
-      const res = await client.query(updateQuery, [
-        session.payment_intent,
-        orderId,
-      ]);
-      client.release();
-
-      if (res.rowCount === 0) {
-        console.error("Comanda nu a fost găsită în DB pentru update:", orderId);
-        return new NextResponse("Order not found", { status: 404 });
-      }
-
-      const order = res.rows[0];
-
-      // 4. Trimitem Emailul cu Biletul
-      // Folosim funcția automată pentru detectarea URL-ului corect
-      // ... în interiorul api/webhook/route.ts
-
-      const getBaseUrl = () => {
-        // 1. Variabila setată manual de tine (Prioritate Maximă)
-        if (process.env.NEXT_PUBLIC_BASE_URL) {
-          return process.env.NEXT_PUBLIC_BASE_URL;
-        }
-
-        // 2. Variabila automată Vercel (Dacă e setată)
-        if (process.env.VERCEL_URL) {
-          return `https://${process.env.VERCEL_URL}`;
-        }
-
-        // // 3. Fallback: Dacă suntem în PRODUCȚIE dar variabilele lipsesc, NU returna localhost
-        // if (process.env.NODE_ENV === "production") {
-        //   // PUNE AICI DOMENIUL TĂU REAL CA ULTIMA SOLUȚIE (HARDCODED)
-        //   return "https://https://bilete-goran-bregovici.vercel.app/";
-        // }
-
-        // 4. Doar pentru dezvoltare locală
-        return "http://localhost:3000";
-      };
-
-      const baseUrl = getBaseUrl();
-      const ticketLink = `${baseUrl}/tickets/view/${order.id}`;
-
-      // Trimitem mail doar dacă avem cui
-      if (customerEmail) {
-        await sendOrderConfirmedEmail({
-          to: customerEmail,
-          customerName: customerName,
-          orderId: order.id,
-          ticketLink: ticketLink,
-        });
-        console.log("📧 Email bilet trimis către:", customerEmail);
-      }
-    } catch (err) {
-      console.error("Eroare la procesarea comenzii în DB:", err);
-      return new NextResponse("Server Error", { status: 500 });
-    }
+  if (event.type !== "checkout.session.completed") {
+    return new NextResponse(null, { status: 200 });
   }
 
-  return new NextResponse(null, { status: 200 });
+  const session = event.data.object as Stripe.Checkout.Session;
+
+  const orderId = session.metadata?.orderId;
+  const customerEmail = session.customer_details?.email;
+  const customerName = session.customer_details?.name || "Client";
+
+  if (!orderId) {
+    console.error("Missing orderId in metadata:", session.id);
+    return new NextResponse("Order ID missing", { status: 400 });
+  }
+
+  // Optional safety: ensure it’s really paid
+  if (session.payment_status && session.payment_status !== "paid") {
+    console.warn("checkout.session.completed but payment_status not paid:", session.id, session.payment_status);
+    return new NextResponse(null, { status: 200 });
+  }
+
+  console.log("✅ Payment confirmed:", { orderId, env: process.env.VERCEL_ENV, hasAppUrl: !!process.env.APP_URL, hasVercelUrl: !!process.env.VERCEL_URL });
+
+  const client = await pool.connect();
+  try {
+    const updateQuery = `
+      UPDATE orders
+      SET status = 'paid',
+          payment_intent_id = $1,
+          updated_at = NOW()
+      WHERE id = $2
+      RETURNING *;
+    `;
+
+    const res = await client.query(updateQuery, [session.payment_intent, orderId]);
+
+    if (res.rowCount === 0) {
+      console.error("Order not found for update:", orderId);
+      return new NextResponse("Order not found", { status: 404 });
+    }
+
+    const order = res.rows[0];
+
+    const baseUrl = getBaseUrl();
+    const ticketLink = `${baseUrl}/tickets/view/${encodeURIComponent(order.id)}`;
+
+    if (customerEmail) {
+      await sendOrderConfirmedEmail({
+        to: customerEmail,
+        customerName,
+        orderId: order.id,
+        ticketLink,
+      });
+      console.log("📧 Email sent to:", customerEmail, "ticketLink:", ticketLink);
+    }
+
+    return new NextResponse(null, { status: 200 });
+  } catch (err) {
+    console.error("DB processing error:", err);
+    return new NextResponse("Server Error", { status: 500 });
+  } finally {
+    client.release();
+  }
 }
