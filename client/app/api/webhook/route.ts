@@ -71,10 +71,26 @@ export async function POST(req: Request) {
 
       // 4. Trimitem Emailul cu Biletul
       // Folosim funcția automată pentru detectarea URL-ului corect
+      // ... în interiorul api/webhook/route.ts
+
       const getBaseUrl = () => {
-        if (process.env.NEXT_PUBLIC_BASE_URL)
+        // 1. Variabila setată manual de tine (Prioritate Maximă)
+        if (process.env.NEXT_PUBLIC_BASE_URL) {
           return process.env.NEXT_PUBLIC_BASE_URL;
-        if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+        }
+
+        // 2. Variabila automată Vercel (Dacă e setată)
+        if (process.env.VERCEL_URL) {
+          return `https://${process.env.VERCEL_URL}`;
+        }
+
+        // // 3. Fallback: Dacă suntem în PRODUCȚIE dar variabilele lipsesc, NU returna localhost
+        // if (process.env.NODE_ENV === "production") {
+        //   // PUNE AICI DOMENIUL TĂU REAL CA ULTIMA SOLUȚIE (HARDCODED)
+        //   return "https://https://bilete-goran-bregovici.vercel.app/";
+        // }
+
+        // 4. Doar pentru dezvoltare locală
         return "http://localhost:3000";
       };
 
