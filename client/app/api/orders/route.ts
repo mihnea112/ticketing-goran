@@ -88,7 +88,7 @@ export async function POST(request: Request) {
       mode: "payment",
 
       // IMPORTANT: route name is /succes in your app
-      success_url: `${CLIENT_URL}/succes?orderId=${orderId}&session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${CLIENT_URL}/succes?orderId=${orderId}`,
       cancel_url: `${CLIENT_URL}/`,
 
       customer_email: customer.email,
