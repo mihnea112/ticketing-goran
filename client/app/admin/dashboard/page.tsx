@@ -14,9 +14,6 @@ import {
   Area,
 } from "recharts";
 
-// Dacă nu e setat în .env, folosim string gol pentru a forța calea relativă
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
-
 // --- INTERFEȚE ---
 interface DashboardData {
   stats: {
@@ -48,11 +45,10 @@ export default function AdminDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // State pentru statusul trimiterii mailului: "loading" | "success" | "error"
+  // State pentru statusul trimiterii mailului
   const [emailStatus, setEmailStatus] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    // 1. Verificare Auth
     const token = localStorage.getItem("adminToken");
 
     if (!token) {
@@ -62,10 +58,8 @@ export default function AdminDashboard() {
 
     const fetchData = async () => {
       try {
-        // Folosim template string simplu pentru a evita dubluri de slash-uri
-        const endpoint = `${API_URL}/api/admin/stats`;
-        
-        const res = await fetch(endpoint, {
+        // Folosim cale relativă pentru a evita erori de rețea pe Vercel
+        const res = await fetch(`/api/admin/stats`, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
@@ -83,8 +77,6 @@ export default function AdminDashboard() {
         }
 
         const json = await res.json();
-
-        // Calculăm capacitatea totală din inventar
         const totalCapacity = json.inventory.reduce(
           (acc: number, item: any) => acc + item.totalQuantity,
           0
@@ -92,10 +84,7 @@ export default function AdminDashboard() {
 
         const processedData = {
           ...json,
-          stats: {
-            ...json.stats,
-            totalCapacity: totalCapacity,
-          },
+          stats: { ...json.stats, totalCapacity: totalCapacity },
         };
 
         setData(processedData);
@@ -109,9 +98,8 @@ export default function AdminDashboard() {
     fetchData();
   }, [router]);
 
-  // --- FUNCȚIA DE RETRIMITERE EMAIL ---
+  // --- 1. FUNCȚIA DE RETRIMITERE EMAIL (Robustă) ---
   const handleResendEmail = async (orderId: string) => {
-    // 1. Setăm status loading
     setEmailStatus((prev) => ({ ...prev, [orderId]: "loading" }));
 
     const token = localStorage.getItem("adminToken");
@@ -121,9 +109,8 @@ export default function AdminDashboard() {
     }
 
     try {
-      const endpoint = `${API_URL}/api/admin/resend-email`;
-
-      const res = await fetch(endpoint, {
+      // Cale relativă
+      const res = await fetch(`/api/admin/resend-email`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -132,15 +119,21 @@ export default function AdminDashboard() {
         body: JSON.stringify({ orderId }),
       });
 
-      // 2. Citim răspunsul JSON (chiar și la eroare, pentru a vedea mesajul)
-      const responseData = await res.json();
+      // Citim textul întâi pentru a evita crash la JSON.parse dacă serverul dă eroare HTML
+      const textResponse = await res.text();
+      let responseData;
+      
+      try {
+        responseData = JSON.parse(textResponse);
+      } catch (e) {
+        console.error("Non-JSON response:", textResponse);
+        alert(`Eroare Server (Status ${res.status}): Verifică log-urile Vercel.`);
+        setEmailStatus((prev) => ({ ...prev, [orderId]: "error" }));
+        return;
+      }
 
       if (res.ok) {
-        // SUCCES
         setEmailStatus((prev) => ({ ...prev, [orderId]: "success" }));
-        console.log("Email trimis:", responseData.message);
-
-        // Resetăm iconița după 3 secunde
         setTimeout(() => {
           setEmailStatus((prev) => {
             const newState = { ...prev };
@@ -148,20 +141,46 @@ export default function AdminDashboard() {
             return newState;
           });
         }, 3000);
-
       } else {
-        // EROARE (inclusiv 400 Bad Request)
-        console.error("Eroare API:", responseData);
+        console.error("API Error:", responseData);
         setEmailStatus((prev) => ({ ...prev, [orderId]: "error" }));
-        
-        // Afișăm un alert cu mesajul exact de la server (ex: "Customer has no email")
         alert(`Eroare: ${responseData.message || "Nu s-a putut trimite emailul."}`);
       }
-    } catch (e) {
-      // EROARE DE REȚEA
+    } catch (e: any) {
       console.error("Network Error:", e);
       setEmailStatus((prev) => ({ ...prev, [orderId]: "error" }));
-      alert("Eroare de rețea. Verifică conexiunea.");
+      alert(`Eroare de rețea: ${e.message}`);
+    }
+  };
+
+  // --- 2. FUNCȚIA DE EDITARE EMAIL (Pt eroare "Customer has no email") ---
+  const handleEditEmail = async (orderId: string, currentCustomer: string) => {
+    const newEmail = window.prompt(`Introdu adresa de email corectă pentru ${currentCustomer}:`);
+    
+    if (!newEmail || newEmail.trim() === "") return;
+
+    const token = localStorage.getItem("adminToken");
+    if (!token) return;
+
+    try {
+        const res = await fetch(`/api/admin/update-email`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "x-admin-token": token,
+            },
+            body: JSON.stringify({ orderId, email: newEmail.trim() }),
+        });
+
+        if (res.ok) {
+            alert("Email actualizat! Acum poți apăsa pe butonul de trimitere (plic).");
+        } else {
+            const err = await res.json();
+            alert(`Eroare: ${err.message}`);
+        }
+    } catch (error) {
+        console.error(error);
+        alert("Eroare de conexiune la actualizarea emailului.");
     }
   };
 
@@ -170,7 +189,6 @@ export default function AdminDashboard() {
     router.push("/admin/login");
   };
 
-  // --- LOADER ---
   if (loading || !data) {
     return (
       <div className="min-h-screen bg-[#0a0905] flex items-center justify-center text-yellow-500">
@@ -185,13 +203,8 @@ export default function AdminDashboard() {
   }
 
   const availableSeats = data.stats.totalCapacity - data.stats.ticketsSold;
-
   const formatCurrency = (val: number) =>
-    new Intl.NumberFormat("ro-RO", {
-      style: "currency",
-      currency: "RON",
-      maximumFractionDigits: 0,
-    }).format(val);
+    new Intl.NumberFormat("ro-RO", { style: "currency", currency: "RON", maximumFractionDigits: 0 }).format(val);
 
   return (
     <div className="min-h-screen pt-10 pb-20 px-4 bg-[#0a0905]">
@@ -199,6 +212,7 @@ export default function AdminDashboard() {
         
         {/* --- HEADER --- */}
         <div className="flex flex-col md:flex-row justify-between items-end gap-6 bg-[#14120c] p-8 rounded-3xl border border-yellow-900/30 relative overflow-hidden">
+          {/* Gradient corectat pentru Tailwind standard */}
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-900 via-yellow-500 to-yellow-900"></div>
           <div className="relative z-10">
             <h1 className="text-4xl md:text-5xl font-black mb-2 text-[#faeacc]">
@@ -219,10 +233,7 @@ export default function AdminDashboard() {
             </button>
             <button className="h-12 px-6 bg-yellow-500 text-black font-bold rounded-xl flex items-center gap-2 hover:bg-[#faeacc] transition-colors shadow-lg shadow-yellow-500/20">
               <span className="material-symbols-outlined">refresh</span>
-              <span
-                className="hidden sm:inline"
-                onClick={() => window.location.reload()}
-              >
+              <span className="hidden sm:inline" onClick={() => window.location.reload()}>
                 Actualizează
               </span>
             </button>
@@ -231,51 +242,20 @@ export default function AdminDashboard() {
 
         {/* --- STATS CARDS --- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatCard
-            label="Venit Total"
-            value={formatCurrency(data.stats.revenue)}
-            icon="payments"
-            trend="Live"
-            isPositive={true}
-          />
-          <StatCard
-            label="Bilete Vândute"
-            value={data.stats.ticketsSold.toString()}
-            icon="confirmation_number"
-            trend={`${Math.round(
-              (data.stats.ticketsSold / (data.stats.totalCapacity || 1)) * 100
-            )}%`}
-            isPositive={true}
-            subLabel="grad de ocupare"
-          />
-          <StatCard
-            label="Locuri Disponibile"
-            value={availableSeats.toString()}
-            icon="event_seat"
-            trend={availableSeats < 50 ? "CRITIC" : "Normal"}
-            isPositive={availableSeats > 50}
-          />
-          <StatCard
-            label="Total Comenzi"
-            value={data.stats.orders.toString()}
-            icon="receipt_long"
-            trend="Procesate"
-            isPositive={null}
-          />
+          <StatCard label="Venit Total" value={formatCurrency(data.stats.revenue)} icon="payments" trend="Live" isPositive={true} />
+          <StatCard label="Bilete Vândute" value={data.stats.ticketsSold.toString()} icon="confirmation_number" trend={`${Math.round((data.stats.ticketsSold / (data.stats.totalCapacity || 1)) * 100)}%`} isPositive={true} subLabel="grad de ocupare" />
+          <StatCard label="Locuri Disponibile" value={availableSeats.toString()} icon="event_seat" trend={availableSeats < 50 ? "CRITIC" : "Normal"} isPositive={availableSeats > 50} />
+          <StatCard label="Total Comenzi" value={data.stats.orders.toString()} icon="receipt_long" trend="Procesate" isPositive={null} />
         </div>
 
-        {/* --- SPLIT SECTION: CHART & RECENTS --- */}
+        {/* --- CHART & RECENTS --- */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          
-          {/* 1. CHART (Stânga) */}
+          {/* CHART */}
           <div className="bg-[#14120c] border border-yellow-900/20 rounded-3xl p-8 relative flex flex-col h-[450px]">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-black text-[#faeacc]">Trend Vânzări</h3>
-              <span className="text-xs font-bold text-yellow-600 uppercase border border-yellow-900/30 px-2 py-1 rounded">
-                7 Zile
-              </span>
+              <span className="text-xs font-bold text-yellow-600 uppercase border border-yellow-900/30 px-2 py-1 rounded">7 Zile</span>
             </div>
-            
             <div className="flex-1 w-full min-h-0">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={data.chart}>
@@ -286,125 +266,87 @@ export default function AdminDashboard() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" />
-                  <XAxis
-                    dataKey="day"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: "#854d0e", fontSize: 12 }}
-                    dy={10}
-                  />
+                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: "#854d0e", fontSize: 12 }} dy={10} />
                   <YAxis hide />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1a1810",
-                      border: "1px solid #854d0e",
-                      borderRadius: "12px",
-                      color: "#faeacc",
-                    }}
+                    contentStyle={{ backgroundColor: "#1a1810", border: "1px solid #854d0e", borderRadius: "12px", color: "#faeacc" }}
                     itemStyle={{ color: "#eab308" }}
                     cursor={{ stroke: "#eab308", strokeWidth: 1 }}
                     formatter={(value: any) => [`${value} RON`, "Vânzări"]}
                   />
-                  <Area
-                    type="monotone"
-                    dataKey="sales"
-                    stroke="#eab308"
-                    strokeWidth={3}
-                    fillOpacity={1}
-                    fill="url(#colorSales)"
-                  />
+                  <Area type="monotone" dataKey="sales" stroke="#eab308" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* 2. RECENT ORDERS (Dreapta) */}
+          {/* RECENT ORDERS */}
           <div className="bg-[#14120c] border border-yellow-900/20 rounded-3xl p-8 flex flex-col h-[450px]">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-black text-[#faeacc]">Activitate Recentă</h3>
-              <span className="flex items-center gap-1 text-xs font-bold text-green-400 bg-green-900/20 px-3 py-1 rounded-full animate-pulse border border-green-500/20">
-                Live
-              </span>
+              <span className="flex items-center gap-1 text-xs font-bold text-green-400 bg-green-900/20 px-3 py-1 rounded-full animate-pulse border border-green-500/20">Live</span>
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
               {data.recentOrders && data.recentOrders.length > 0 ? (
                 data.recentOrders.map((order, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-4 bg-yellow-900/5 rounded-2xl border border-yellow-900/10 hover:bg-yellow-900/20 transition-all"
-                  >
-                    {/* INFO CLIENT */}
+                  <div key={idx} className="flex items-center justify-between p-4 bg-yellow-900/5 rounded-2xl border border-yellow-900/10 hover:bg-yellow-900/20 transition-all">
                     <div className="flex items-center gap-4">
-                      <div
-                        className={`p-3 rounded-xl border ${
-                          order.status === "paid"
-                            ? "border-green-500/20 text-green-500 bg-green-900/10"
-                            : "border-yellow-500/20 text-yellow-500 bg-yellow-900/10"
-                        }`}
-                      >
-                        <span className="material-symbols-outlined">
-                          {order.status === "paid" ? "check_circle" : "shopping_cart"}
-                        </span>
+                      <div className={`p-3 rounded-xl border ${order.status === "paid" ? "border-green-500/20 text-green-500 bg-green-900/10" : "border-yellow-500/20 text-yellow-500 bg-yellow-900/10"}`}>
+                        <span className="material-symbols-outlined">{order.status === "paid" ? "check_circle" : "shopping_cart"}</span>
                       </div>
                       <div>
-                        <p className="font-bold text-[#faeacc] text-sm">
-                          {order.customer}
-                        </p>
+                        <p className="font-bold text-[#faeacc] text-sm">{order.customer}</p>
                         <div className="flex items-center gap-2">
-                          <p className="text-[10px] text-yellow-600 font-bold uppercase tracking-wider">
-                            {order.date}
-                          </p>
-                          <span
-                            className={`text-[9px] font-bold uppercase px-1.5 rounded ${
-                              order.status === "paid"
-                                ? "bg-green-900 text-green-400"
-                                : "bg-yellow-900 text-yellow-500"
-                            }`}
-                          >
-                            {order.status}
-                          </span>
+                          <p className="text-[10px] text-yellow-600 font-bold uppercase tracking-wider">{order.date}</p>
+                          <span className={`text-[9px] font-bold uppercase px-1.5 rounded ${order.status === "paid" ? "bg-green-900 text-green-400" : "bg-yellow-900 text-yellow-500"}`}>{order.status}</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* BUTON RESEND EMAIL */}
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       {order.status === "paid" && (
-                        <button
-                          onClick={() => handleResendEmail(order.id)}
-                          disabled={
-                            emailStatus[order.id] === "loading" ||
-                            emailStatus[order.id] === "success"
-                          }
-                          title="Retrimite Email Bilete"
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${
-                            emailStatus[order.id] === "success"
-                              ? "bg-green-500 text-black border-green-500"
-                              : emailStatus[order.id] === "error"
-                              ? "bg-red-500 text-white border-red-500"
-                              : "bg-[#1a1810] text-yellow-500 border-yellow-900/30 hover:border-yellow-500 hover:bg-yellow-500/10"
-                          }`}
-                        >
-                          {emailStatus[order.id] === "loading" ? (
-                            <span className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></span>
-                          ) : emailStatus[order.id] === "success" ? (
-                            <span className="material-symbols-outlined text-lg">check</span>
-                          ) : emailStatus[order.id] === "error" ? (
-                            <span className="material-symbols-outlined text-lg">priority_high</span>
-                          ) : (
-                            <span className="material-symbols-outlined text-lg">mail</span>
-                          )}
-                        </button>
+                        <>
+                            {/* BUTON EDIT EMAIL (NOU) */}
+                            <button 
+                                onClick={() => handleEditEmail(order.id, order.customer)}
+                                title="Editează Email Client"
+                                className="w-10 h-10 rounded-xl flex items-center justify-center border border-yellow-900/30 text-yellow-600 hover:text-yellow-400 hover:border-yellow-500 hover:bg-yellow-500/10 transition-all"
+                            >
+                                <span className="material-symbols-outlined text-lg">edit</span>
+                            </button>
+
+                            {/* BUTON RESEND EMAIL */}
+                            <button
+                            onClick={() => handleResendEmail(order.id)}
+                            disabled={emailStatus[order.id] === "loading" || emailStatus[order.id] === "success"}
+                            title="Retrimite Email Bilete"
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${
+                                emailStatus[order.id] === "success"
+                                ? "bg-green-500 text-black border-green-500"
+                                : emailStatus[order.id] === "error"
+                                ? "bg-red-500 text-white border-red-500"
+                                : "bg-[#1a1810] text-yellow-500 border-yellow-900/30 hover:border-yellow-500 hover:bg-yellow-500/10"
+                            }`}
+                            >
+                            {emailStatus[order.id] === "loading" ? (
+                                <span className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></span>
+                            ) : emailStatus[order.id] === "success" ? (
+                                <span className="material-symbols-outlined text-lg">check</span>
+                            ) : emailStatus[order.id] === "error" ? (
+                                <span className="material-symbols-outlined text-lg">priority_high</span>
+                            ) : (
+                                <span className="material-symbols-outlined text-lg">mail</span>
+                            )}
+                            </button>
+                        </>
                       )}
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-yellow-900/40">
-                  <span className="material-symbols-outlined text-4xl mb-2">
-                    history_toggle_off
-                  </span>
+                  <span className="material-symbols-outlined text-4xl mb-2">history_toggle_off</span>
                   <p className="font-bold text-sm">Nicio comandă recentă</p>
                 </div>
               )}
@@ -431,45 +373,23 @@ export default function AdminDashboard() {
               </thead>
               <tbody className="divide-y divide-yellow-900/10 text-sm">
                 {data.inventory.map((row) => {
-                  const percentage =
-                    (row.soldQuantity / row.totalQuantity) * 100;
+                  const percentage = (row.soldQuantity / row.totalQuantity) * 100;
                   let status = "Activ";
                   if (percentage >= 100) status = "Sold Out";
                   else if (percentage > 80) status = "Critic";
 
                   return (
-                    <tr
-                      key={row.id}
-                      className="hover:bg-yellow-500/5 transition-colors group"
-                    >
+                    <tr key={row.id} className="hover:bg-yellow-500/5 transition-colors group">
                       <td className="px-8 py-6">
                         <p className="font-bold text-[#faeacc]">{row.name}</p>
-                        <p className="text-xs text-yellow-700 uppercase">
-                          {row.code}
-                        </p>
+                        <p className="text-xs text-yellow-700 uppercase">{row.code}</p>
                       </td>
-                      <td className="px-8 py-6 text-yellow-500 font-bold font-mono">
-                        {row.price} RON
-                      </td>
-                      <td className="px-8 py-6 text-yellow-100/40">
-                        {row.totalQuantity}
-                      </td>
-                      <td className="px-8 py-6 text-[#faeacc] font-bold">
-                        {row.soldQuantity}
-                      </td>
-                      <td className="px-8 py-6 text-green-500 font-mono">
-                        {formatCurrency(row.soldQuantity * row.price)}
-                      </td>
+                      <td className="px-8 py-6 text-yellow-500 font-bold font-mono">{row.price} RON</td>
+                      <td className="px-8 py-6 text-yellow-100/40">{row.totalQuantity}</td>
+                      <td className="px-8 py-6 text-[#faeacc] font-bold">{row.soldQuantity}</td>
+                      <td className="px-8 py-6 text-green-500 font-mono">{formatCurrency(row.soldQuantity * row.price)}</td>
                       <td className="px-8 py-6">
-                        <span
-                          className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase border ${
-                            status === "Sold Out"
-                              ? "bg-red-500/10 text-red-400 border-red-500/20"
-                              : status === "Activ"
-                              ? "bg-green-500/10 text-green-400 border-green-500/20"
-                              : "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
-                          }`}
-                        >
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase border ${status === "Sold Out" ? "bg-red-500/10 text-red-400 border-red-500/20" : status === "Activ" ? "bg-green-500/10 text-green-400 border-green-500/20" : "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"}`}>
                           {status}
                         </span>
                       </td>
@@ -485,30 +405,16 @@ export default function AdminDashboard() {
   );
 }
 
-// --- Componentă mică pentru Carduri ---
 function StatCard({ label, value, icon, trend, isPositive, subLabel }: any) {
   return (
     <div className="bg-[#14120c] p-8 rounded-3xl border border-yellow-900/20 group hover:border-yellow-500/50 transition-all hover:bg-yellow-900/5">
       <div className="flex justify-between items-start mb-4">
-        <span className="text-yellow-600 font-bold uppercase tracking-widest text-[10px]">
-          {label}
-        </span>
-        <span className="material-symbols-outlined text-yellow-500 group-hover:scale-110 transition-transform bg-yellow-500/10 p-2 rounded-lg">
-          {icon}
-        </span>
+        <span className="text-yellow-600 font-bold uppercase tracking-widest text-[10px]">{label}</span>
+        <span className="material-symbols-outlined text-yellow-500 group-hover:scale-110 transition-transform bg-yellow-500/10 p-2 rounded-lg">{icon}</span>
       </div>
       <p className="text-3xl font-black mb-2 text-[#faeacc]">{value}</p>
-      <p
-        className={`text-xs font-bold flex items-center gap-1 ${
-          isPositive === true
-            ? "text-green-400"
-            : isPositive === false
-            ? "text-red-400"
-            : "text-gray-500"
-        }`}
-      >
-        {trend}{" "}
-        <span className="text-yellow-900/40 font-normal">{subLabel || ""}</span>
+      <p className={`text-xs font-bold flex items-center gap-1 ${isPositive === true ? "text-green-400" : isPositive === false ? "text-red-400" : "text-gray-500"}`}>
+        {trend} <span className="text-yellow-900/40 font-normal">{subLabel || ""}</span>
       </p>
     </div>
   );
