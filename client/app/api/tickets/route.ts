@@ -1,27 +1,31 @@
+// app/api/tickets/route.ts
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { mapCategory } from "@/lib/utils";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function GET() {
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
-      "SELECT * FROM ticket_categories ORDER BY price ASC"
-    );
-    const tickets = result.rows.map(mapCategory).map((t: any) => ({
-      ...t,
-      available: t.totalQuantity - t.soldQuantity,
-      isSoldOut: t.totalQuantity <= t.soldQuantity,
-    }));
+    const res = await client.query(`
+      SELECT
+        id,
+        code,
+        name,
+        price,
+        "totalQuantity"  AS "totalQuantity",
+        "soldQuantity"   AS "soldQuantity"
+      FROM ticket_categories
+      ORDER BY price ASC
+    `);
 
-    // Setăm cache control ca să nu facă request la DB la fiecare milisecundă (opțional)
-    return NextResponse.json(tickets, {
-      headers: { "Cache-Control": "no-store" },
-    });
-  } catch (error) {
-    console.error("Error fetching tickets:", error);
-    return NextResponse.json(
-      { error: "Eroare la preluarea biletelor" },
-      { status: 500 }
-    );
+    return NextResponse.json(res.rows);
+  } catch (e: any) {
+    console.error("tickets GET error:", e);
+    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
+  } finally {
+    client.release();
   }
 }
