@@ -19,7 +19,7 @@ export default function AdminLogin() {
       localStorage.setItem('adminToken', 'admin-logged-in-securely');
       
       // 3. Redirecționare către Scanner
-      router.push('/admin/scan');
+      router.push('/admin/dashboard');
       
     } else {
       setError('Parolă incorectă');
