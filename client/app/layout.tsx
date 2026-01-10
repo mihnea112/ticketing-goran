@@ -120,7 +120,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ro" className={`${inter.variable} ${playfair.variable} scroll-smooth`}>
       <head>
-        <meta name="google-site-verification" content="google-site-verification=QJjkX5LTtXifLc9O8i2MhY1BTjGFJTrtVNM3dKCT5A4" />
+        <meta name="google-site-verification" content="xClF3oHXt074V5tXTXiXWw7xk-yuX_TZ5HUodDSD6Eo" />
         <link
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
