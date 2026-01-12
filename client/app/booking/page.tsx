@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLang } from "@/components/LanguageProvider";
 
@@ -17,28 +17,28 @@ interface TicketData {
   badge?: string;
 }
 
+const META = {
+  vip: {
+    desc: {
+      ro: "VIP: masă în picioare lângă scenă + un pahar de prosecco inclus.",
+      en: "VIP: standing table near the stage + a glass of prosecco included.",
+    },
+    badge: { ro: "EXCLUSIV", en: "EXCLUSIVE" },
+  },
+  general: {
+    desc: {
+      ro: "General: acces la scaune și la parter.",
+      en: "General: access to seating and the ground floor area.",
+    },
+    badge: { ro: "BEST VALUE", en: "BEST VALUE" },
+  },
+} as const;
+
+type MetaCode = keyof typeof META;
+
 export default function BookingPage() {
   const router = useRouter();
   const { lang, t } = useLang();
-
-  // Translated UI metadata (desc + badge) driven by i18n keys
-  const UI_METADATA = useMemo<Record<string, { desc: string; badge?: string }>>(
-    () => ({
-      general: {
-        desc: t("ticket_desc_general"),
-        badge: t("ticket_badge_best_value"),
-      },
-      tribune: {
-        desc: t("ticket_desc_tribune"),
-        badge: t("ticket_badge_popular"),
-      },
-      gold: {
-        desc: t("ticket_desc_gold"),
-        badge: t("ticket_badge_exclusive"),
-      },
-    }),
-    [lang, t]
-  );
 
   const [tickets, setTickets] = useState<TicketData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,7 +63,6 @@ export default function BookingPage() {
         const processedTickets: TicketData[] = data.map((x: any) => ({
           ...x,
           id: String(x.id),
-          ...(UI_METADATA[x.code] || {}),
         }));
 
         setTickets(processedTickets);
@@ -81,7 +80,7 @@ export default function BookingPage() {
 
     fetchTickets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang]); // refetch so desc/badges update when lang changes
+  }, []);
 
   const updateQty = (id: string, delta: number) => {
     const ticket = tickets.find((x) => x.id === id);
@@ -155,16 +154,13 @@ export default function BookingPage() {
   return (
     <div className="min-h-screen pt-32 pb-20 px-4 bg-[#0a0905]">
       <div className="max-w-7xl mx-auto">
-        {/* Page Title */}
         <div className="mb-12 border-b border-yellow-900/20 pb-8">
           <span className="text-yellow-500 font-bold tracking-[0.2em] uppercase text-xs">{t("booking_kicker")}</span>
           <h1 className="text-4xl md:text-5xl font-black text-[#faeacc] mt-2">{t("booking_title")}</h1>
         </div>
 
         <div className="flex flex-col lg:flex-row gap-12">
-          {/* Left Column */}
           <div className="flex-1 space-y-16">
-            {/* 1. Tickets */}
             <div>
               <h2 className="text-2xl font-black mb-6 text-[#faeacc] flex items-center gap-3">
                 <span className="size-8 rounded-full bg-yellow-500 text-black text-sm flex items-center justify-center">
@@ -179,7 +175,16 @@ export default function BookingPage() {
                   const isSoldOut = available <= 0;
                   const isLowStock = available > 0 && available < 10;
                   const currentQty = quantities[ticket.id] || 0;
-                  const isGold = ticket.code === "gold";
+
+                  const code = ticket.code as MetaCode;
+                  const meta = (META as any)[code] as (typeof META)[MetaCode] | undefined;
+
+                  const metaDesc =
+                    meta?.desc?.[lang as "ro" | "en"] ?? ticket.desc ?? "";
+                  const metaBadge =
+                    meta?.badge?.[lang as "ro" | "en"] ?? ticket.badge;
+
+                  const isVip = ticket.code === "vip";
 
                   return (
                     <div
@@ -189,23 +194,29 @@ export default function BookingPage() {
                         ${
                           isSoldOut
                             ? "bg-white/5 border-white/5 opacity-50 grayscale"
-                            : isGold
+                            : isVip
                             ? "bg-yellow-900/10 border-yellow-500/50 hover:border-yellow-500"
                             : "bg-[#14120c] border-yellow-900/30 hover:border-yellow-500/50 hover:bg-yellow-900/10"
                         }
                         ${currentQty > 0 ? "border-yellow-500 ring-1 ring-yellow-500/50" : ""}
                       `}
                     >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className={`text-xl font-bold ${isGold ? "text-yellow-400" : "text-[#faeacc]"}`}>
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="min-w-0">
+                          <h3 className={`text-2xl font-black ${isVip ? "text-yellow-400" : "text-[#faeacc]"}`}>
                             {ticket.name}
                           </h3>
-                          <p className="text-yellow-100/40 text-xs mb-2">{ticket.desc}</p>
 
-                          <p className="text-yellow-500 text-2xl font-black mt-1">
+                          {/* BIGGER DETAILS TEXT (same idea as HomeClient) */}
+                          {metaDesc ? (
+                            <p className="mt-3 text-base sm:text-lg text-yellow-100/70 leading-relaxed">
+                              {metaDesc}
+                            </p>
+                          ) : null}
+
+                          <p className="text-yellow-500 text-2xl font-black mt-4">
                             {ticket.price}{" "}
-                            <span className="text-xs text-yellow-600 font-normal">RON</span>
+                            <span className="text-sm text-yellow-600 font-bold">RON</span>
                           </p>
 
                           <p
@@ -228,14 +239,13 @@ export default function BookingPage() {
                           </p>
                         </div>
 
-                        {ticket.badge && (
-                          <span className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 text-[10px] font-bold uppercase px-2 py-1 rounded">
-                            {ticket.badge}
+                        {metaBadge && (
+                          <span className="shrink-0 bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 text-[10px] font-bold uppercase px-2 py-1 rounded">
+                            {metaBadge}
                           </span>
                         )}
                       </div>
 
-                      {/* Counter */}
                       <div
                         className={`flex items-center justify-between p-1.5 bg-[#0a0905] rounded-xl border border-yellow-900/30 ${
                           isSoldOut ? "pointer-events-none" : ""
@@ -265,7 +275,6 @@ export default function BookingPage() {
               </div>
             </div>
 
-            {/* 2. Customer Form */}
             <div>
               <h2 className="text-2xl font-black mb-6 text-[#faeacc] flex items-center gap-3">
                 <span className="size-8 rounded-full bg-yellow-500 text-black text-sm flex items-center justify-center">
@@ -334,7 +343,6 @@ export default function BookingPage() {
             </div>
           </div>
 
-          {/* Sidebar */}
           <div className="w-full lg:w-[400px]">
             <div className="sticky top-32 bg-[#14120c] border border-yellow-900/30 rounded-3xl p-8 space-y-8 shadow-2xl relative overflow-hidden">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-900 via-yellow-500 to-yellow-900" />
@@ -350,7 +358,10 @@ export default function BookingPage() {
                     if (!qty) return null;
 
                     return (
-                      <div key={ticket.id} className="flex justify-between items-start animate-in slide-in-from-left-4 fade-in duration-300">
+                      <div
+                        key={ticket.id}
+                        className="flex justify-between items-start animate-in slide-in-from-left-4 fade-in duration-300"
+                      >
                         <div>
                           <p className="font-bold text-[#faeacc]">
                             {qty} x {ticket.name}

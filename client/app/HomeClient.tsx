@@ -12,6 +12,18 @@ export default function HomeClient({ tickets }: { tickets: TicketData[] }) {
   const lowStockLabel = (remaining: number) =>
     `${t("stock_low_prefix")} ${remaining} ${t("stock_low_suffix")}`;
 
+  // Ticket details shown under each ticket type (only 2 codes: vip, general)
+  const TICKET_DETAILS: Record<"vip" | "general", { ro: string; en: string }> = {
+    vip: {
+      ro: "VIP: masă în picioare lângă scenă + un pahar de prosecco inclus.",
+      en: "VIP: standing table near the stage + a glass of prosecco included.",
+    },
+    general: {
+      ro: "General: acces la scaune și la parter.",
+      en: "General: access to seating and the ground floor area.",
+    },
+  };
+
   return (
     <div className="flex flex-col w-full bg-[#0a0905] min-h-screen text-[#faeacc] overflow-x-clip">
       {/* --- HERO SECTION --- */}
@@ -228,13 +240,20 @@ export default function HomeClient({ tickets }: { tickets: TicketData[] }) {
                 const remaining = Number(ticket.totalQuantity) - Number(ticket.soldQuantity);
                 const isLowStock = remaining > 0 && remaining <= 50;
                 const isSoldOut = remaining <= 0;
-                const isGold = ticket.code === "vip" || ticket.code === "gold";
+                const isGold = ticket.code === "vip";
 
                 const availabilityLabel = isSoldOut
                   ? t("stock_sold_out")
                   : isLowStock
                   ? lowStockLabel(remaining)
                   : t("stock_available");
+
+                const detailsText =
+                  ticket.code === "vip" || ticket.code === "general"
+                    ? TICKET_DETAILS[ticket.code][lang]
+                    : lang === "ro"
+                      ? "Detalii indisponibile momentan"
+                      : "Details currently unavailable";
 
                 return (
                   <div
@@ -254,14 +273,16 @@ export default function HomeClient({ tickets }: { tickets: TicketData[] }) {
                     )}
 
                     <div className="mb-6 relative z-10">
-                      <h4
-                        className={`text-xl font-black uppercase tracking-tight mb-2 ${
-                          isGold ? "text-yellow-400" : "text-white"
-                        }`}
-                      >
+                      <h4 className={`text-xl font-black uppercase tracking-tight ${isGold ? "text-yellow-400" : "text-white"}`}>
                         {ticket.name}
                       </h4>
-                      <div className="flex items-baseline gap-1">
+
+                      {/* Ticket details under each ticket type (BIGGER TEXT) */}
+                      <p className="mt-3 text-base sm:text-lg text-yellow-100/70 leading-relaxed">
+                        {detailsText}
+                      </p>
+
+                      <div className="flex items-baseline gap-1 mt-5">
                         <span className="text-4xl font-black text-white">{ticket.price}</span>
                         <span className="text-yellow-600 font-bold text-sm">RON</span>
                       </div>
